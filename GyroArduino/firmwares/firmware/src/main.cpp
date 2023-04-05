@@ -63,7 +63,7 @@ int localPort = 8888;                /**< source port for UDP communication on E
 
 //-------MPU SETTINGS AND FUNCTIONS-------
 // Parameters of the setup
-uint16_t cleanUpCounter = 0; // periodically clean up things (65535)
+uint16_t cleanUpCounter = 0; /**< count iterations of loop() to trigger clean up periodically */
 
 // Addresses and pin of IMU (MPU-9250) and TCA9548A(=multiplexer)
 #define MPU_ADDRESS_1 0x68           /**< address of the MPU-9250 when its pin AD0 is low */
@@ -597,7 +597,7 @@ uint8_t countMultiplexer() {
  * @warning This function is not thread-safe (i.e. due to calling selectI2cMultiplexerChannel())
  * @note stack size is about 1500*32bit
  */
-void configureMPU9250(MPU9250socket *skt) {
+void configureMPU9250(MPU9250socket* skt) {
   // MPU parameters (sensitivity, etc)
   setting.accel_fs_sel = ACCEL_FS_SEL::A4G;
   setting.gyro_fs_sel = GYRO_FS_SEL::G500DPS;
