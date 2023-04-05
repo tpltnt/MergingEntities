@@ -2,6 +2,7 @@
  *
  * This code is intended to run on an ESP32 (<a hfref="https://www.espressif.com/sites/default/files/documentation/esp32_datasheet_en.pdf">datasheet</a>)
  * with a TCA9548A I2C multiplexer and generic MPU9250 sensor boards.
+ * Other sensors may be supported, but the MPU9250 has first class support.
  *
  * @note This code base is the leading one in terms of features and maturity.
  * @todo clean up setup/config code dependend on controller ID
@@ -27,9 +28,11 @@
 #include <Preferences.h>
 #include <WiFi.h>
 #include <WiFiUdp.h>
-// MPU and Bitbang library
+// MPU9250 and Bitbang library
 #include "MPU9250.h"
-
+// adafruit sensor library
+#include <Adafruit_AHRS.h>
+#include <Adafruit_Sensor_Calibration.h>
 
 //-------GENERAL SETTINGS-------
 #define NUMBER_OF_MPU 6 /**< number of IMU (MPU) (boards) attached to the controller  */
@@ -84,19 +87,41 @@ int state = HIGH;        /**< last state of the button */
 int state_button = LOW;  /**< current state of the button */
 
 /**
+ * A data structure to handle hardware related data of one Adafruit
+ * Precision NXP 9-DOF Breakout Board (i.e. FXOS8700 + FXAS21002).
+ *
+ * @note This sensor board is deprecated, see https://www.adafruit.com/product/3463
+ *
+ * @see MPU9250socket
+ * @see MPU9250data
+ * @see IOBundle
+ */
+struct NXP9DOFsocket {
+  const char* label; /**< human readable identification of the sensor (for OSC path) */
+  bool usable = false; /**< indicate that sensor (data) is present and no errors occured */
+  uint8_t multiplexer; /**< I2C address of the responsible I2C multiplexer */
+  uint8_t channel;     /**< channel used on the I2C multiplexer */
+  uint8_t address = MPU_ADDRESS_1; /**< I2C address of the NXP9DOF board */
+  Adafruit_Sensor *accelerometer; /**< software handler/abstraction for the accelerometer at given channel of given multiplexer */
+  Adafruit_Sensor *gyroscope;     /**< software handler/abstraction for the gyroscope at given channel of given multiplexer */
+  Adafruit_Sensor *magnetometer;  /**< software handler/abstraction for the magnetometer at given channel of given multiplexer */
+};
+
+/**
  * A data structure to handle hardware related data of one MPU9250.
  *
  * @todo Also move data read from sensor here (?)
  * @see MPU9250data
  * @see IOBundle
+ * @see NXP9DOFsocket
  */
 struct MPU9250socket {
   const char* label; /**< human readable identification of the sensor (for OSC path) */
+  bool usable = false; /**< indicate that sensor (data) is present and no errors occured */
   uint8_t multiplexer; /**< I2C address of the responsible I2C multiplexer */
   uint8_t channel;     /**< channel used on the I2C multiplexer */
   uint8_t address = MPU_ADDRESS_1; /**< I2C address of the MPU9250 */
   MPU9250 mpu; /**< software handler/abstraction for MPU at given channel of given multiplexer */
-  bool usable = false; /**< indicate that sensor (data) is present and no errors occured */
 };
 
 /**
