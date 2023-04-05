@@ -1,8 +1,9 @@
 /** @file
  *
  * This code is intended to run on an ESP32 (<a hfref="https://www.espressif.com/sites/default/files/documentation/esp32_datasheet_en.pdf">datasheet</a>)
- * with a TCA9548A I2C multiplexer and generic MPU9250 sensor boards.
- * Other sensors may be supported, but the MPU9250 has first class support.
+ * with a TCA9548A I2C multiplexer and generic motion sensor boards.
+ * The MPU9250 has first class support, but other sensors may be integrated as well.
+ * This firmware is also a departure from the old OneSix_* versions in terms of design.
  *
  * @note This code base is the leading one in terms of features and maturity.
  * @todo clean up setup/config code dependend on controller ID
@@ -18,7 +19,6 @@
 // Eventually speed up if TCA is fast enough
 // The IMU is a MPU-9250, hence the reference in variable names etc.
 
-// Attention : select the right channel with the TCA function (+2 woth prototype in wood, i regular without)
 
 //-------LIBRARIES-------
 // Library to use Arduino commands
@@ -33,6 +33,9 @@
 // adafruit sensor library
 #include <Adafruit_AHRS.h>
 #include <Adafruit_Sensor_Calibration.h>
+// internal helper
+#include "multiplexer.h"
+
 
 //-------GENERAL SETTINGS-------
 #define NUMBER_OF_MPU 6 /**< number of IMU (MPU) (boards) attached to the controller  */
@@ -85,6 +88,7 @@ float theta = 0;    /**< angle to the north */
 
 int state = HIGH;        /**< last state of the button */
 int state_button = LOW;  /**< current state of the button */
+
 
 /**
  * A data structure to handle hardware related data of one Adafruit
