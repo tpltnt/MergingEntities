@@ -110,9 +110,9 @@ int state_button = LOW; /**< current state of the button */
 struct NXP9DOFsocket {
   const char *label; /**< human readable identification of the sensor (for OSC path) */
   bool usable = false; /**< indicate that sensor (data) is present and no errors occured */
-  uint8_t multiplexer; /**< I2C address of the responsible I2C multiplexer */
+  Multiplexer* multiplexer; /**< pointer to (guarding) I2C multiplexer */
   uint8_t channel;     /**< channel used on the I2C multiplexer */
-  uint8_t address = MPU_ADDRESS_1; /**< I2C address of the NXP9DOF board */
+  //uint8_t address = MPU_ADDRESS_1; /**< I2C address of the NXP9DOF board */
   Adafruit_Sensor *accelerometer; /**< software handler/abstraction for the accelerometer at given channel of given multiplexer */
   Adafruit_Sensor *gyroscope; /**< software handler/abstraction for the gyroscope at given channel of given multiplexer */
   Adafruit_Sensor *magnetometer; /**< software handler/abstraction for the magnetometer at given channel of given multiplexer */
@@ -129,7 +129,7 @@ struct NXP9DOFsocket {
 struct MPU9250socket {
   const char *label; /**< human readable identification of the sensor (for OSC path) */
   bool usable = false; /**< indicate that sensor (data) is present and no errors occured */
-  uint8_t multiplexer; /**< I2C address of the responsible I2C multiplexer */
+  Multiplexer* multiplexer; /**< pointer to (guarding) I2C multiplexer */
   uint8_t channel;     /**< channel used on the I2C multiplexer */
   uint8_t address = MPU_ADDRESS_1; /**< I2C address of the MPU9250 */
   MPU9250 mpu; /**< software handler/abstraction for MPU at given channel of given multiplexer */
@@ -231,9 +231,10 @@ MPU9250Setting setting; /**< configuration settings of the MPU9250 stored in mem
  * Switch to the given channel on the multiplexer for I2C communication.
  *
  * This function updates the control register in the switch to select one
- * of the eight I2C devices (numbered 0..7) attached to it.
+ * of the eight I2C devices (numbered 0..7) attached to it and locks
+ * this particular multiplexer.
  *
- * @param address The I2C address of the multiplexer to use
+ * @param mux pointer to the relvant I2C multiplexer
  * @param channel The channel to select to communicate with I2C client
  * @return true if selection was successful, false if not
  * @see countI2cDevices()
@@ -241,17 +242,34 @@ MPU9250Setting setting; /**< configuration settings of the MPU9250 stored in mem
  * @see fetchData()
  * @todo limit processing to valid values (0..7)
  */
-bool selectI2cMultiplexerChannel(uint8_t address, uint8_t channel) {
-  bool result = false;
-  // select the multiplexer by its hardware address
-  Wire.beginTransmission(address);
-  // select a channel on the multiplexer
-  if (1 == Wire.write(1 << channel)) {
-    result = true;
+bool selectI2cMultiplexerChannel(Multiplexer *mux, uint8_t channel) {
+  // select channel on multiplexer
+  if (!mux->set_lock()) {
+    // could not lock, i.e. multiplexer is in use
+#ifdef DEBUG
+    Serial.print("channel ");
+    Serial.print(channel);
+    Serial.print(" on multiplexer 0x");
+    Serial.println(mux->get_address(), HEX);
+    Serial.println(" ... failed at multiplexer locking");
+#endif
+    return false;
   }
-  Wire.endTransmission();
-  return result;
+  if (!mux->select_channel(channel)) {
+    // could not select the channel, ergo unlock multiplexer
+#ifdef DEBUG
+    Serial.print("channel ");
+    Serial.print(channel);
+    Serial.print(" on multiplexer 0x");
+    Serial.println(mux->get_address(), HEX);
+    Serial.println(" ... failed at multiplexer channel selection");
+#endif
+    mux->remove_lock();
+    return false;
+  }
+  return true;
 }
+
 
 /**
  * Count I2C devices (IMU) connected to ESP and
@@ -483,7 +501,8 @@ void manualMagnetometerCalibration() {
       digitalWrite(YEL_PIN, state);
       state = HIGH;
     }
-    calibration.add("Calibration of ").add(i + 1);
+    calibration.add("magnetometer calibration of ")
+        .add(iobundle[i].socket.label);
 
     Udp.beginPacket(outIp, outPort);
     calibration.send(Udp);
@@ -491,16 +510,21 @@ void manualMagnetometerCalibration() {
 
     Serial.println(i);
 
-    if (!selectI2cMultiplexerChannel(iobundle[i].socket.multiplexer,
-                                     iobundle[i].socket.channel)) {
-      Serial.print("could not select channel ");
-      Serial.print(iobundle[i].socket.channel);
-      Serial.print(" on multiplexer at address ");
-      Serial.println(iobundle[i].socket.multiplexer);
-    }
+    // select channel on multiplexer
+    if (!selectI2cMultiplexerChannel(iobundle[i].socket.multiplexer, iobundle[i].socket.channel)) {
+		iobundle[i].socket.multiplexer->remove_lock();
+		Serial.print("skipping ");
+		Serial.print(iobundle[i].socket.label);
+		Serial.println(" because channel selection failed");
+		iobundle[i].socket.multiplexer->remove_lock();
+		continue;
+	}
+    // actually calibrate
     iobundle[i].socket.mpu.setMagneticDeclination(MAG_DECLINATION);
     iobundle[i].socket.mpu.calibrateMag();
-
+    // unlock multiplexer
+    iobundle[i].socket.multiplexer->remove_lock();
+    // clear up calibration OSC message
     calibration.empty();
   }
 }
@@ -539,9 +563,7 @@ void automaticMagnetometerCalibration() {
  * @param stk is a pointer to the sensor (socket) to configure
  * @see checkAndConfigureGyros()
  * @see loadMPU9250CalibrationData(MPU9250socket *skt)
- * @warning This function is not thread-safe (i.e. due to calling
- * selectI2cMultiplexerChannel())
- * @note stack size is about 1500*32bit
+ * @see Multiplexer
  */
 void configureMPU9250(MPU9250socket *skt) {
   // MPU parameters (sensitivity, etc)
@@ -557,16 +579,13 @@ void configureMPU9250(MPU9250socket *skt) {
   QuatFilterSel sel{QuatFilterSel::MADGWICK};
 
   // select channel on multiplexer
-  if (!selectI2cMultiplexerChannel(skt->multiplexer, skt->channel)) {
-    // selection failed
-    skt->usable = false;
-#ifdef DEBUG
-    Serial.print(skt->channel);
-    Serial.println(skt->multiplexer, HEX);
-    Serial.println(" ... failed at multiplexer channel selection");
-#endif
+  if(!selectI2cMultiplexerChannel(skt->multiplexer, skt->channel)) {
+    skt->multiplexer->remove_lock();
+    Serial.print("skipping configuration of");
+    Serial.println(skt->label);
     return;
   }
+
 
   /*/ check if suitable sensor is connected
    * This was an attempt, but probably better done after mpu.setup()
@@ -597,18 +616,19 @@ void configureMPU9250(MPU9250socket *skt) {
 
 #ifdef DEBUG
   Serial.print("using multiplexer 0x");
-  Serial.print(skt->multiplexer, HEX);
+  Serial.print(skt->multiplexer->get_address(), HEX);
   Serial.print(" with channel ");
   Serial.println(skt->channel);
   skt->mpu.verbose(true);
 #endif
   // try to initialize the multiplexer with the (global) settings
-  if (!skt->mpu.setup(skt->address, setting, Wire)) {
+  if (!skt->mpu.setup(skt->address, setting, *(skt->multiplexer->i2c))) {
     // somehow it failed
     skt->usable = false;
 #ifdef DEBUG
     Serial.println(" ... failed at MPU setup");
 #endif
+    skt->multiplexer->remove_lock();
     return;
   }
 
@@ -618,6 +638,7 @@ void configureMPU9250(MPU9250socket *skt) {
 
   // everything is done and now the senor is usable
   skt->usable = true;
+  skt->multiplexer->remove_lock();
 }
 
 /**
@@ -741,8 +762,8 @@ void passiveAccelerometerCalibration() {
                                      iobundle[i].socket.channel)) {
       Serial.print(" could not select channel ");
       Serial.print(iobundle[i].socket.channel);
-      Serial.print(" on multiplexer at address ");
-      Serial.println(iobundle[i].socket.multiplexer);
+      Serial.print(" on multiplexer at address 0x");
+      Serial.println(iobundle[i].socket.multiplexer->get_address(), HEX);
       iobundle[i].socket.usable = false;
       continue;
     }
@@ -820,8 +841,8 @@ void passiveMagnetometerCalibration() {
                                      iobundle[i].socket.channel)) {
       Serial.print("could not select channel ");
       Serial.print(iobundle[i].socket.channel);
-      Serial.print(" on multiplexer at address ");
-      Serial.println(iobundle[i].socket.multiplexer);
+      Serial.print(" on multiplexer at address 0x");
+      Serial.println(iobundle[i].socket.multiplexer->get_address(), HEX);
       iobundle[i].socket.usable = false;
       continue;
     }
@@ -874,13 +895,13 @@ void calibrateNorth() {
   digitalWrite(YEL_PIN, HIGH);
 
   // sample the MPU for 10 seconds to have the good yaw if we need it
-  if (!selectI2cMultiplexerChannel(
-          iobundle[LEFT_UPPER_ARM_INDEX].socket.multiplexer,
-          iobundle[LEFT_UPPER_ARM_INDEX].socket.channel)) {
-    Serial.print("could not select channel ");
-    Serial.print(iobundle[LEFT_UPPER_ARM_INDEX].socket.channel);
-    Serial.print(" on multiplexer at address 0x");
-    Serial.println(iobundle[LEFT_UPPER_ARM_INDEX].socket.multiplexer, HEX);
+
+  // select channel on multiplexer
+  if(!selectI2cMultiplexerChannel(iobundle[LEFT_UPPER_ARM_INDEX].socket.multiplexer, iobundle[LEFT_UPPER_ARM_INDEX].socket.channel)) {
+    iobundle[LEFT_UPPER_ARM_INDEX].socket.multiplexer->remove_lock();
+    Serial.print("skipping north calibration for ");
+    Serial.println(iobundle[LEFT_UPPER_ARM_INDEX].socket.label);
+    return;
   }
 
   time_passed = millis();
@@ -892,6 +913,8 @@ void calibrateNorth() {
     }
     time_passed = millis();
   }
+  iobundle[LEFT_UPPER_ARM_INDEX].socket.multiplexer->remove_lock();
+  
   digitalWrite(RED_PIN, LOW);
   digitalWrite(YEL_PIN, LOW);
   Serial.println(".. thank you");
@@ -1047,14 +1070,15 @@ void noButtonCalibration(bool autocalibration = true) {
     }
     Serial.print("calibrating sensor for ");
     Serial.println(iobundle[i].socket.label);
-    if (!selectI2cMultiplexerChannel(iobundle[i].socket.multiplexer,
-                                     iobundle[i].socket.channel)) {
-      Serial.print("could not select channel ");
-      Serial.print(iobundle[i].socket.channel);
-      Serial.print(" on multiplexer at address 0x");
-      Serial.println(iobundle[i].socket.multiplexer, HEX);
+    // select channel on multiplexer
+    if(!selectI2cMultiplexerChannel(iobundle[i].socket.multiplexer, iobundle[i].socket.channel)) {
+      iobundle[i].socket.multiplexer->remove_lock();
+      Serial.print("skipped ");
+      Serial.println(iobundle[i].socket.label);
+      continue;
     }
     iobundle[i].socket.mpu.calibrateAccelGyro();
+    iobundle[i].socket.multiplexer->remove_lock();
   }
   digitalWrite(RED_PIN, LOW);
   Serial.println("acceleration calibration done.");
@@ -1085,13 +1109,16 @@ void noButtonCalibration(bool autocalibration = true) {
 void fetchData() {
   // fetch data from each MPU
   for (uint8_t i = 0; i < NUMBER_OF_MPU; i++) {
-    if (!selectI2cMultiplexerChannel(iobundle[i].socket.multiplexer,
-                                     iobundle[i].socket.channel)) {
-      Serial.print("could not select channel ");
-      Serial.print(iobundle[i].socket.channel);
-      Serial.print(" on multiplexer at address ");
-      Serial.println(iobundle[i].socket.multiplexer);
+    // select channel on multiplexer
+    //if (!iobundle[i].socket.multiplexer->set_lock()) {
+    if(!selectI2cMultiplexerChannel(iobundle[i].socket.multiplexer, iobundle[i].socket.channel)) {
+      iobundle[i].socket.multiplexer->remove_lock();
+      Serial.print("not fetching from ");
+      Serial.println(iobundle[i].socket.label);
+      continue;
     }
+
+
     if (iobundle[i].socket.usable) {
       if (!iobundle[i].socket.mpu.update()) {
         // too harsh?
@@ -1103,6 +1130,8 @@ void fetchData() {
       Serial.print(iobundle[i].socket.label);
       Serial.println(" is not usable");
     }
+    // fetching done, remove lock
+    iobundle[i].socket.multiplexer->remove_lock();
   }
 
   // store sensor values in global structure to send out
@@ -1207,7 +1236,7 @@ void setup() {
 
   // first do the minimal setup
   iobundle[RIGHT_UPPER_ARM_INDEX].socket.label = "right_upper_arm";
-  iobundle[RIGHT_UPPER_ARM_INDEX].socket.multiplexer = TCA_ADDRESS_RIGHT_SIDE;
+  iobundle[RIGHT_UPPER_ARM_INDEX].socket.multiplexer = &right_mux;
   iobundle[RIGHT_UPPER_ARM_INDEX].socket.channel = 2;
 #ifdef BODY_1
   iobundle[RIGHT_UPPER_ARM_INDEX].message = OSCMessage("/body/1/gyro/right_upper_arm/");
@@ -1216,7 +1245,7 @@ void setup() {
   iobundle[RIGHT_UPPER_ARM_INDEX].message = OSCMessage("/body/2/gyro/right_upper_arm/");
 #endif
   iobundle[RIGHT_FOOT_INDEX].socket.label = "right_foot";
-  iobundle[RIGHT_FOOT_INDEX].socket.multiplexer = TCA_ADDRESS_RIGHT_SIDE;
+  iobundle[RIGHT_FOOT_INDEX].socket.multiplexer = &right_mux;
   iobundle[RIGHT_FOOT_INDEX].socket.channel = 5;
 #ifdef BODY_1
   iobundle[RIGHT_FOOT_INDEX].message = OSCMessage("/body/1/gyro/right_foot/");
@@ -1225,7 +1254,7 @@ void setup() {
   iobundle[RIGHT_FOOT_INDEX].message = OSCMessage("/body/2/gyro/right_foot/");
 #endif
   iobundle[BACK_INDEX].socket.label = "back";
-  iobundle[BACK_INDEX].socket.multiplexer = TCA_ADDRESS_RIGHT_SIDE;
+  iobundle[BACK_INDEX].socket.multiplexer = &right_mux;
   iobundle[BACK_INDEX].socket.channel = 7;
 #ifdef BODY_1
   iobundle[BACK_INDEX].message = OSCMessage("/body/1/gyro/back/");
@@ -1234,7 +1263,7 @@ void setup() {
   iobundle[BACK_INDEX].message = OSCMessage("/body/2/gyro/back/");
 #endif
   iobundle[LEFT_UPPER_ARM_INDEX].socket.label = "left_upper_arm";
-  iobundle[LEFT_UPPER_ARM_INDEX].socket.multiplexer = TCA_ADDRESS_LEFT_SIDE;
+  iobundle[LEFT_UPPER_ARM_INDEX].socket.multiplexer = &left_mux;
   iobundle[LEFT_UPPER_ARM_INDEX].socket.channel = 2;
 #ifdef BODY_1
   iobundle[LEFT_UPPER_ARM_INDEX].message = OSCMessage("/body/1/gyro/left_upper_arm/");
@@ -1243,7 +1272,7 @@ void setup() {
   iobundle[LEFT_UPPER_ARM_INDEX].message = OSCMessage("/body/2/gyro/left_upper_arm/");
 #endif
   iobundle[LEFT_FOOT_INDEX].socket.label = "left_foot";
-  iobundle[LEFT_FOOT_INDEX].socket.multiplexer = TCA_ADDRESS_LEFT_SIDE;
+  iobundle[LEFT_FOOT_INDEX].socket.multiplexer = &left_mux;
   iobundle[LEFT_FOOT_INDEX].socket.channel = 5;
 #ifdef BODY_1
   iobundle[LEFT_FOOT_INDEX].message = OSCMessage("/body/1/gyro/left_foot/");
@@ -1252,7 +1281,7 @@ void setup() {
   iobundle[LEFT_FOOT_INDEX].message = OSCMessage("/body/2/gyro/left_foot/");
 #endif
   iobundle[HEAD_INDEX].socket.label = "head";
-  iobundle[HEAD_INDEX].socket.multiplexer = TCA_ADDRESS_LEFT_SIDE;
+  iobundle[HEAD_INDEX].socket.multiplexer = &left_mux;
   iobundle[HEAD_INDEX].socket.channel = 7;
 #ifdef BODY_1
   iobundle[HEAD_INDEX].message = OSCMessage("/body/1/gyro/head/");
@@ -1262,48 +1291,40 @@ void setup() {
 #endif
   // 4 additional sensors
   iobundle[RIGHT_LOWER_ARM_INDEX].socket.label = "right_lower_arm";
-  iobundle[RIGHT_LOWER_ARM_INDEX].socket.multiplexer = TCA_ADDRESS_RIGHT_SIDE;
+  iobundle[RIGHT_LOWER_ARM_INDEX].socket.multiplexer = &right_mux;
   iobundle[RIGHT_LOWER_ARM_INDEX].socket.channel = 3;
 #ifdef BODY_1
-  iobundle[RIGHT_LOWER_ARM_INDEX].message =
-      OSCMessage("/body/1/gyro/right_lower_arm/");
+  iobundle[RIGHT_LOWER_ARM_INDEX].message = OSCMessage("/body/1/gyro/right_lower_arm/");
 #endif
 #ifdef BODY_2
-  iobundle[RIGHT_LOWER_ARM_INDEX].message =
-      OSCMessage("/body/2/gyro/right_lower_arm/");
+  iobundle[RIGHT_LOWER_ARM_INDEX].message = OSCMessage("/body/2/gyro/right_lower_arm/");
 #endif
   iobundle[RIGHT_UPPER_LEG_INDEX].socket.label = "right_upper_leg";
-  iobundle[RIGHT_UPPER_LEG_INDEX].socket.multiplexer = TCA_ADDRESS_RIGHT_SIDE;
+  iobundle[RIGHT_UPPER_LEG_INDEX].socket.multiplexer = &right_mux;
   iobundle[RIGHT_UPPER_LEG_INDEX].socket.channel = 4;
 #ifdef BODY_1
-  iobundle[RIGHT_UPPER_LEG_INDEX].message =
-      OSCMessage("/body/1/gyro/right_upper_leg/");
+  iobundle[RIGHT_UPPER_LEG_INDEX].message = OSCMessage("/body/1/gyro/right_upper_leg/");
 #endif
 #ifdef BODY_2
-  iobundle[RIGHT_UPPER_LEG_INDEX].message =
-      OSCMessage("/body/2/gyro/right_upper_leg/");
+  iobundle[RIGHT_UPPER_LEG_INDEX].message = OSCMessage("/body/2/gyro/right_upper_leg/");
 #endif
   iobundle[LEFT_LOWER_ARM_INDEX].socket.label = "left_lower_arm";
-  iobundle[LEFT_LOWER_ARM_INDEX].socket.multiplexer = TCA_ADDRESS_LEFT_SIDE;
+  iobundle[LEFT_LOWER_ARM_INDEX].socket.multiplexer = &left_mux;
   iobundle[LEFT_LOWER_ARM_INDEX].socket.channel = 3;
 #ifdef BODY_1
-  iobundle[LEFT_LOWER_ARM_INDEX].message =
-      OSCMessage("/body/1/gyro/left_lower_arm/");
+  iobundle[LEFT_LOWER_ARM_INDEX].message = OSCMessage("/body/1/gyro/left_lower_arm/");
 #endif
 #ifdef BODY_2
-  iobundle[LEFT_LOWER_ARM_INDEX].message =
-      OSCMessage("/body/2/gyro/left_lower_arm/");
+  iobundle[LEFT_LOWER_ARM_INDEX].message = OSCMessage("/body/2/gyro/left_lower_arm/");
 #endif
   iobundle[LEFT_UPPER_LEG_INDEX].socket.label = "left_upper_leg";
-  iobundle[LEFT_UPPER_LEG_INDEX].socket.multiplexer = TCA_ADDRESS_LEFT_SIDE;
+  iobundle[LEFT_UPPER_LEG_INDEX].socket.multiplexer = &left_mux;
   iobundle[LEFT_UPPER_LEG_INDEX].socket.channel = 4;
 #ifdef BODY_1
-  iobundle[LEFT_UPPER_LEG_INDEX].message =
-      OSCMessage("/body/1/gyro/left_upper_leg/");
+  iobundle[LEFT_UPPER_LEG_INDEX].message = OSCMessage("/body/1/gyro/left_upper_leg/");
 #endif
 #ifdef BODY_2
-  iobundle[LEFT_UPPER_LEG_INDEX].message =
-      OSCMessage("/body/2/gyro/left_upper_leg/");
+  iobundle[LEFT_UPPER_LEG_INDEX].message = OSCMessage("/body/2/gyro/left_upper_leg/");
 #endif
   Serial.println(".. done");
 
