@@ -222,7 +222,7 @@ struct IOBundle {
 Preferences preferences; /**< container for preferences to be stored in non-volatile memory on ESP32 */
 
 // MPU9250 settings and data storage
-IOBundle iobundle[NUMBER_OF_MPU]; /**< one global handler to deal with MPU9250 data (communication) to be accessed by index */
+IOBundle iobundle[10]; /**< one global handler to deal with sensor data (communication) to be accessed by index (10 = max. number of sensors) */
 float accbias[6][3];  /**< bias/drift/offset profile for the accelerator */
 float gyrobias[6][3]; /**< bias/drift/offset profile for the gyroscope */
 MPU9250Setting setting; /**< configuration settings of the MPU9250 stored in memory */
@@ -237,7 +237,6 @@ MPU9250Setting setting; /**< configuration settings of the MPU9250 stored in mem
  * @param channel The channel to select to communicate with I2C client
  * @return true if selection was successful, false if not
  * @see countI2cDevices()
- * @see countMultiplexer()
  * @see checkAndConfigureGyros()
  * @see fetchData()
  * @todo limit processing to valid values (0..7)
@@ -261,7 +260,6 @@ bool selectI2cMultiplexerChannel(uint8_t address, uint8_t channel) {
  * @note Select a multiplexer and channel first.
  *
  * @see selectI2cMultiplexerChannel(uint8_t address, uint8_t channel)
- * @see countMultiplexer()
  * @see checkAndConfigureGyros()
  * @todo select switch channel to scan via function argument?
  */
@@ -531,77 +529,6 @@ void automaticMagnetometerCalibration() {
                                        magscale[i][2]);
   }
   Serial.println("Mag calibration done");
-}
-
-/**
- * Count the number of I2C multiplexer attached to the controller.
- *
- * This routine is useful to guess the number of TCA9548A I2C multiplexer
- * attached to the controller and thus select a (sub-)set of OSC paths
- * and data to be transmitted.
- *
- * @return Number of TCA9548A I2C multiplexer
- * @see countI2cDevices()
- * @see selectI2cMultiplexerChannel(uint8_t address, uint8_t channel)
- */
-uint8_t countMultiplexer() {
-  uint8_t deviceCount = 0;
-  uint8_t result = 0;
-
-#ifdef DEBUG
-  Serial.println();
-  Serial.print("* I2C timeout is ");
-  Serial.print(Wire.getTimeOut());
-  Serial.println("ms");
-  Serial.print("* address 0x");
-  Serial.println(TCA_ADDRESS_LEFT_SIDE, HEX);
-#endif
-  // we try to talk to expected multiplexers
-  Wire.beginTransmission(TCA_ADDRESS_LEFT_SIDE);
-  result = Wire.endTransmission(true);
-  switch (result) {
-  case 0:
-    // talking was successful, we found a device at the current address
-    deviceCount += 1;
-#ifdef DEBUG
-    Serial.println("* found a multiplexer");
-    break;
-  case 5:
-    Serial.println("* I2C bus timeout");
-#endif
-    break;
-  default:
-    break;
-  }
-
-  // doing it again
-#ifdef DEBUG
-  Serial.print("* I2C timeout is ");
-  Serial.print(Wire.getTimeOut());
-  Serial.println("ms");
-  Serial.print("* address 0x");
-  Serial.println(TCA_ADDRESS_RIGHT_SIDE, HEX);
-#endif
-  // doing it again
-  Wire.beginTransmission(TCA_ADDRESS_RIGHT_SIDE);
-  result = Wire.endTransmission(true);
-  switch (result) {
-  case 0:
-    // talking was successful, we found a device at the current address
-    deviceCount += 1;
-#ifdef DEBUG
-    Serial.println("* found a multiplexer");
-    break;
-  case 5:
-    Serial.println("* I2C bus timeout");
-#endif
-    break;
-  default:
-    break;
-  }
-
-  // delay(5000); // wait 5 seconds for next scan - TODO: remove?
-  return deviceCount;
 }
 
 /**
@@ -1277,189 +1204,107 @@ void setup() {
   // 1 right side multiplexer & 6 MPU: prototype board
   // 2 multiplexer & 10 MPU: 10 sensor board
   // maybe test for different busses?
-#ifdef DEBUG
-  Serial.print("found ");
-  Serial.print(countMultiplexer());
-  Serial.println(" multiplexer");
-#endif
-  switch (countMultiplexer()) {
-  case 1:
-    // old prototype board
-    if (10 == NUMBER_OF_MPU) {
-      Serial.println("");
-      Serial.println("---------------------------------------------------");
-      Serial.println("10 sensors incompatible with single I2C multiplexer");
-      Serial.println("---------------------------------------------------");
-      Serial.println("... stopping everything");
-      // put ESP32 into deep sleep (closest to shutdown)
-      esp_deep_sleep_start();
-    }
-    iobundle[LEFT_UPPER_ARM_INDEX].socket.label = "left_upper_arm";
-    iobundle[LEFT_UPPER_ARM_INDEX].socket.multiplexer = TCA_ADDRESS_RIGHT_SIDE;
-    iobundle[LEFT_UPPER_ARM_INDEX].socket.channel = 1;
+
+  // first do the minimal setup
+  iobundle[RIGHT_UPPER_ARM_INDEX].socket.label = "right_upper_arm";
+  iobundle[RIGHT_UPPER_ARM_INDEX].socket.multiplexer = TCA_ADDRESS_RIGHT_SIDE;
+  iobundle[RIGHT_UPPER_ARM_INDEX].socket.channel = 2;
 #ifdef BODY_1
-    iobundle[LEFT_UPPER_ARM_INDEX].message =
-        OSCMessage("/body/1/gyro/left_upper_arm/");
+  iobundle[RIGHT_UPPER_ARM_INDEX].message = OSCMessage("/body/1/gyro/right_upper_arm/");
 #endif
 #ifdef BODY_2
-    iobundle[LEFT_UPPER_ARM_INDEX].message =
-        OSCMessage("/body/2/gyro/left_upper_arm/");
+  iobundle[RIGHT_UPPER_ARM_INDEX].message = OSCMessage("/body/2/gyro/right_upper_arm/");
 #endif
-    iobundle[RIGHT_UPPER_ARM_INDEX].socket.label = "right_upper_arm";
-    iobundle[RIGHT_UPPER_ARM_INDEX].socket.multiplexer = TCA_ADDRESS_RIGHT_SIDE;
-    iobundle[RIGHT_UPPER_ARM_INDEX].socket.channel = 3;
+  iobundle[RIGHT_FOOT_INDEX].socket.label = "right_foot";
+  iobundle[RIGHT_FOOT_INDEX].socket.multiplexer = TCA_ADDRESS_RIGHT_SIDE;
+  iobundle[RIGHT_FOOT_INDEX].socket.channel = 5;
 #ifdef BODY_1
-    iobundle[RIGHT_UPPER_ARM_INDEX].message =
-        OSCMessage("/body/1/gyro/right_upper_arm/");
+  iobundle[RIGHT_FOOT_INDEX].message = OSCMessage("/body/1/gyro/right_foot/");
 #endif
 #ifdef BODY_2
-    iobundle[RIGHT_UPPER_ARM_INDEX].message =
-        OSCMessage("/body/2/gyro/right_upper_arm/");
+  iobundle[RIGHT_FOOT_INDEX].message = OSCMessage("/body/2/gyro/right_foot/");
 #endif
-    iobundle[LEFT_FOOT_INDEX].socket.label = "left_foot";
-    iobundle[LEFT_FOOT_INDEX].socket.multiplexer = TCA_ADDRESS_RIGHT_SIDE;
-    iobundle[LEFT_FOOT_INDEX].socket.channel = 2;
+  iobundle[BACK_INDEX].socket.label = "back";
+  iobundle[BACK_INDEX].socket.multiplexer = TCA_ADDRESS_RIGHT_SIDE;
+  iobundle[BACK_INDEX].socket.channel = 7;
 #ifdef BODY_1
-    iobundle[LEFT_FOOT_INDEX].message = OSCMessage("/body/1/gyro/left_foot/");
+  iobundle[BACK_INDEX].message = OSCMessage("/body/1/gyro/back/");
 #endif
 #ifdef BODY_2
-    iobundle[LEFT_FOOT_INDEX].message = OSCMessage("/body/2/gyro/left_foot/");
+  iobundle[BACK_INDEX].message = OSCMessage("/body/2/gyro/back/");
 #endif
-    iobundle[RIGHT_FOOT_INDEX].socket.label = "right_foot";
-    iobundle[RIGHT_FOOT_INDEX].socket.multiplexer = TCA_ADDRESS_RIGHT_SIDE;
-    iobundle[RIGHT_FOOT_INDEX].socket.channel = 5;
+  iobundle[LEFT_UPPER_ARM_INDEX].socket.label = "left_upper_arm";
+  iobundle[LEFT_UPPER_ARM_INDEX].socket.multiplexer = TCA_ADDRESS_LEFT_SIDE;
+  iobundle[LEFT_UPPER_ARM_INDEX].socket.channel = 2;
 #ifdef BODY_1
-    iobundle[RIGHT_FOOT_INDEX].message = OSCMessage("/body/1/gyro/right_foot/");
+  iobundle[LEFT_UPPER_ARM_INDEX].message = OSCMessage("/body/1/gyro/left_upper_arm/");
 #endif
 #ifdef BODY_2
-    iobundle[RIGHT_FOOT_INDEX].message = OSCMessage("/body/2/gyro/right_foot/");
+  iobundle[LEFT_UPPER_ARM_INDEX].message = OSCMessage("/body/2/gyro/left_upper_arm/");
 #endif
-    iobundle[BACK_INDEX].socket.label = "back";
-    iobundle[BACK_INDEX].socket.multiplexer = TCA_ADDRESS_RIGHT_SIDE;
-    iobundle[BACK_INDEX].socket.channel = 4;
+  iobundle[LEFT_FOOT_INDEX].socket.label = "left_foot";
+  iobundle[LEFT_FOOT_INDEX].socket.multiplexer = TCA_ADDRESS_LEFT_SIDE;
+  iobundle[LEFT_FOOT_INDEX].socket.channel = 5;
 #ifdef BODY_1
-    iobundle[BACK_INDEX].message = OSCMessage("/body/1/gyro/back/");
+  iobundle[LEFT_FOOT_INDEX].message = OSCMessage("/body/1/gyro/left_foot/");
 #endif
 #ifdef BODY_2
-    iobundle[BACK_INDEX].message = OSCMessage("/body/2/gyro/back/");
+  iobundle[LEFT_FOOT_INDEX].message = OSCMessage("/body/2/gyro/left_foot/");
 #endif
-    iobundle[HEAD_INDEX].socket.label = "head";
-    iobundle[HEAD_INDEX].socket.multiplexer = TCA_ADDRESS_RIGHT_SIDE;
-    iobundle[HEAD_INDEX].socket.channel = 0;
+  iobundle[HEAD_INDEX].socket.label = "head";
+  iobundle[HEAD_INDEX].socket.multiplexer = TCA_ADDRESS_LEFT_SIDE;
+  iobundle[HEAD_INDEX].socket.channel = 7;
 #ifdef BODY_1
-    iobundle[HEAD_INDEX].message = OSCMessage("/body/1/gyro/head/");
+  iobundle[HEAD_INDEX].message = OSCMessage("/body/1/gyro/head/");
 #endif
 #ifdef BODY_2
-    iobundle[HEAD_INDEX].message = OSCMessage("/body/2/gyro/head/");
+  iobundle[HEAD_INDEX].message = OSCMessage("/body/2/gyro/head/");
 #endif
-    break;
-  case 2:
-    // first do the minimal setup
-    iobundle[RIGHT_UPPER_ARM_INDEX].socket.label = "right_upper_arm";
-    iobundle[RIGHT_UPPER_ARM_INDEX].socket.multiplexer = TCA_ADDRESS_RIGHT_SIDE;
-    iobundle[RIGHT_UPPER_ARM_INDEX].socket.channel = 2;
+  // 4 additional sensors
+  iobundle[RIGHT_LOWER_ARM_INDEX].socket.label = "right_lower_arm";
+  iobundle[RIGHT_LOWER_ARM_INDEX].socket.multiplexer = TCA_ADDRESS_RIGHT_SIDE;
+  iobundle[RIGHT_LOWER_ARM_INDEX].socket.channel = 3;
 #ifdef BODY_1
-    iobundle[RIGHT_UPPER_ARM_INDEX].message = OSCMessage("/body/1/gyro/right_upper_arm/");
+  iobundle[RIGHT_LOWER_ARM_INDEX].message =
+      OSCMessage("/body/1/gyro/right_lower_arm/");
 #endif
 #ifdef BODY_2
-    iobundle[RIGHT_UPPER_ARM_INDEX].message = OSCMessage("/body/2/gyro/right_upper_arm/");
+  iobundle[RIGHT_LOWER_ARM_INDEX].message =
+      OSCMessage("/body/2/gyro/right_lower_arm/");
 #endif
-    iobundle[RIGHT_FOOT_INDEX].socket.label = "right_foot";
-    iobundle[RIGHT_FOOT_INDEX].socket.multiplexer = TCA_ADDRESS_RIGHT_SIDE;
-    iobundle[RIGHT_FOOT_INDEX].socket.channel = 5;
+  iobundle[RIGHT_UPPER_LEG_INDEX].socket.label = "right_upper_leg";
+  iobundle[RIGHT_UPPER_LEG_INDEX].socket.multiplexer = TCA_ADDRESS_RIGHT_SIDE;
+  iobundle[RIGHT_UPPER_LEG_INDEX].socket.channel = 4;
 #ifdef BODY_1
-    iobundle[RIGHT_FOOT_INDEX].message = OSCMessage("/body/1/gyro/right_foot/");
+  iobundle[RIGHT_UPPER_LEG_INDEX].message =
+      OSCMessage("/body/1/gyro/right_upper_leg/");
 #endif
 #ifdef BODY_2
-    iobundle[RIGHT_FOOT_INDEX].message = OSCMessage("/body/2/gyro/right_foot/");
+  iobundle[RIGHT_UPPER_LEG_INDEX].message =
+      OSCMessage("/body/2/gyro/right_upper_leg/");
 #endif
-    iobundle[BACK_INDEX].socket.label = "back";
-    iobundle[BACK_INDEX].socket.multiplexer = TCA_ADDRESS_RIGHT_SIDE;
-    iobundle[BACK_INDEX].socket.channel = 7;
+  iobundle[LEFT_LOWER_ARM_INDEX].socket.label = "left_lower_arm";
+  iobundle[LEFT_LOWER_ARM_INDEX].socket.multiplexer = TCA_ADDRESS_LEFT_SIDE;
+  iobundle[LEFT_LOWER_ARM_INDEX].socket.channel = 3;
 #ifdef BODY_1
-    iobundle[BACK_INDEX].message = OSCMessage("/body/1/gyro/back/");
+  iobundle[LEFT_LOWER_ARM_INDEX].message =
+      OSCMessage("/body/1/gyro/left_lower_arm/");
 #endif
 #ifdef BODY_2
-    iobundle[BACK_INDEX].message = OSCMessage("/body/2/gyro/back/");
+  iobundle[LEFT_LOWER_ARM_INDEX].message =
+      OSCMessage("/body/2/gyro/left_lower_arm/");
 #endif
-    iobundle[LEFT_UPPER_ARM_INDEX].socket.label = "left_upper_arm";
-    iobundle[LEFT_UPPER_ARM_INDEX].socket.multiplexer = TCA_ADDRESS_LEFT_SIDE;
-    iobundle[LEFT_UPPER_ARM_INDEX].socket.channel = 2;
+  iobundle[LEFT_UPPER_LEG_INDEX].socket.label = "left_upper_leg";
+  iobundle[LEFT_UPPER_LEG_INDEX].socket.multiplexer = TCA_ADDRESS_LEFT_SIDE;
+  iobundle[LEFT_UPPER_LEG_INDEX].socket.channel = 4;
 #ifdef BODY_1
-    iobundle[LEFT_UPPER_ARM_INDEX].message = OSCMessage("/body/1/gyro/left_upper_arm/");
+  iobundle[LEFT_UPPER_LEG_INDEX].message =
+      OSCMessage("/body/1/gyro/left_upper_leg/");
 #endif
 #ifdef BODY_2
-    iobundle[LEFT_UPPER_ARM_INDEX].message = OSCMessage("/body/2/gyro/left_upper_arm/");
+  iobundle[LEFT_UPPER_LEG_INDEX].message =
+      OSCMessage("/body/2/gyro/left_upper_leg/");
 #endif
-    iobundle[LEFT_FOOT_INDEX].socket.label = "left_foot";
-    iobundle[LEFT_FOOT_INDEX].socket.multiplexer = TCA_ADDRESS_LEFT_SIDE;
-    iobundle[LEFT_FOOT_INDEX].socket.channel = 5;
-#ifdef BODY_1
-    iobundle[LEFT_FOOT_INDEX].message = OSCMessage("/body/1/gyro/left_foot/");
-#endif
-#ifdef BODY_2
-    iobundle[LEFT_FOOT_INDEX].message = OSCMessage("/body/2/gyro/left_foot/");
-#endif
-    iobundle[HEAD_INDEX].socket.label = "head";
-    iobundle[HEAD_INDEX].socket.multiplexer = TCA_ADDRESS_LEFT_SIDE;
-    iobundle[HEAD_INDEX].socket.channel = 7;
-#ifdef BODY_1
-    iobundle[HEAD_INDEX].message = OSCMessage("/body/1/gyro/head/");
-#endif
-#ifdef BODY_2
-    iobundle[HEAD_INDEX].message = OSCMessage("/body/2/gyro/head/");
-#endif
-    // add the additional iobundle if build is configured that way
-    if (10 == NUMBER_OF_MPU) {
-      iobundle[RIGHT_LOWER_ARM_INDEX].socket.label = "right_lower_arm";
-      iobundle[RIGHT_LOWER_ARM_INDEX].socket.multiplexer =
-          TCA_ADDRESS_RIGHT_SIDE;
-      iobundle[RIGHT_LOWER_ARM_INDEX].socket.channel = 3;
-#ifdef BODY_1
-      iobundle[RIGHT_LOWER_ARM_INDEX].message = OSCMessage("/body/1/gyro/right_lower_arm/");
-#endif
-#ifdef BODY_2
-      iobundle[RIGHT_LOWER_ARM_INDEX].message = OSCMessage("/body/2/gyro/right_lower_arm/");
-#endif
-      iobundle[RIGHT_UPPER_LEG_INDEX].socket.label = "right_upper_leg";
-      iobundle[RIGHT_UPPER_LEG_INDEX].socket.multiplexer = TCA_ADDRESS_RIGHT_SIDE;
-      iobundle[RIGHT_UPPER_LEG_INDEX].socket.channel = 4;
-#ifdef BODY_1
-      iobundle[RIGHT_UPPER_LEG_INDEX].message = OSCMessage("/body/1/gyro/right_upper_leg/");
-#endif
-#ifdef BODY_2
-      iobundle[RIGHT_UPPER_LEG_INDEX].message = OSCMessage("/body/2/gyro/right_upper_leg/");
-#endif
-      iobundle[LEFT_LOWER_ARM_INDEX].socket.label = "left_lower_arm";
-      iobundle[LEFT_LOWER_ARM_INDEX].socket.multiplexer = TCA_ADDRESS_LEFT_SIDE;
-      iobundle[LEFT_LOWER_ARM_INDEX].socket.channel = 3;
-#ifdef BODY_1
-      iobundle[LEFT_LOWER_ARM_INDEX].message = OSCMessage("/body/1/gyro/left_lower_arm/");
-#endif
-#ifdef BODY_2
-      iobundle[LEFT_LOWER_ARM_INDEX].message = OSCMessage("/body/2/gyro/left_lower_arm/");
-#endif
-      iobundle[LEFT_UPPER_LEG_INDEX].socket.label = "left_upper_leg";
-      iobundle[LEFT_UPPER_LEG_INDEX].socket.multiplexer = TCA_ADDRESS_LEFT_SIDE;
-      iobundle[LEFT_UPPER_LEG_INDEX].socket.channel = 4;
-#ifdef BODY_1
-      iobundle[LEFT_UPPER_LEG_INDEX].message = OSCMessage("/body/1/gyro/left_upper_leg/");
-#endif
-#ifdef BODY_2
-      iobundle[LEFT_UPPER_LEG_INDEX].message = OSCMessage("/body/2/gyro/left_upper_leg/");
-#endif
-    }
-    break;
-  default:
-    Serial.println("");
-    Serial.println("---------------------------------------------------");
-    Serial.println("can not find a reasonable number of I2C multiplexer");
-    Serial.println("---------------------------------------------------");
-    Serial.println("... stopping everything");
-    // put ESP32 into deep sleep (closest to shutdown)
-    esp_deep_sleep_start();
-    break;
-  }
   Serial.println(".. done");
 
   // check which MPU9250 board is there and configure them
