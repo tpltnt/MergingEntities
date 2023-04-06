@@ -10,12 +10,14 @@
  * @todo integrate TwoWire instance (instead of reference)
  */
 class Multiplexer {
-  bool locked;     /**< flag the current use */
-  uint8_t address; /**< I2C address of the multiplexer */
-  TwoWire *i2c;    /**< internal I2C bus instance */
+  bool locked = false; /**< flag the current use */
+  uint8_t address;     /**< I2C address of the multiplexer */
+public:
+  TwoWire *i2c = NULL; /**< internal I2C bus instance */
 
 public:
-  Multiplexer(TwoWire *tw, uint8_t address, int data, int clock);
+  Multiplexer(void);
+  bool setup(TwoWire *tw, uint8_t address, int data, int clock);
   bool set_lock(void);
   bool set_lock(uint8_t channel);
   void remove_lock(void);
@@ -25,6 +27,14 @@ public:
 
 /**
  * Create a new instance of a multiplexer.
+ */
+Multiplexer::Multiplexer(void) {
+  locked = false;
+  i2c = NULL;
+}
+
+/**
+ * Set up the internal data structures.
  *
  * @warning Reusing the same bus number causes race conditions, crashes, and
  * unstable code/runtime behaviour.
@@ -32,11 +42,18 @@ public:
  * @param address is the I2C address of the multiplexer
  * @param data is the data pin
  * @param clock is the clock pin
+ * @return true if setup was successful, false if error occured
  */
-Multiplexer::Multiplexer(TwoWire *tw, uint8_t address, int data, int clock) {
+bool Multiplexer::setup(TwoWire *tw, uint8_t address, int data, int clock) {
+  if (NULL != tw) {
+    return false;
+  }
+  if (locked) {
+    return false;
+  }
   i2c = tw;
   this->address = address;
-  i2c->begin(data, clock, 100000);
+  return i2c->begin(data, clock, 100000);
 }
 
 /**
@@ -117,6 +134,9 @@ bool Multiplexer::is_free(void) { return !locked; }
  * requires an explicit remove_lock().
  */
 bool Multiplexer::select_channel(uint8_t channel) {
+  if (NULL == i2c) {
+    return false;
+  }
   // channel out of range
   if (channel > 7) {
     return false;

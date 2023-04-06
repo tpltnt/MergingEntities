@@ -74,6 +74,7 @@ uint16_t cleanUpCounter = 0; /**< count iterations of loop() to trigger clean up
 // SDA and SCL pin of the soft and hard wire mode
 #define SDA_PIN 21   /**< I2C data pin (on ESP32) */
 #define SCL_PIN 22   /**< I2C clock pin (on ESP32) */
+Multiplexer mux1;    /**< I2C multiplexer for sensor boards */
 
 // LED pin for info showing, BUTTON pin for communication
 #define RED_PIN 32   /**< ESP pin number of red LED */
