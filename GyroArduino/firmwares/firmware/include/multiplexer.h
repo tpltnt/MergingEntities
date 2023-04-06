@@ -23,6 +23,7 @@ public:
   void remove_lock(void);
   bool is_free(void);
   bool select_channel(uint8_t channel);
+  uint8_t get_address(void);
 };
 
 /**
@@ -43,6 +44,7 @@ Multiplexer::Multiplexer(void) {
  * @param data is the data pin
  * @param clock is the clock pin
  * @return true if setup was successful, false if error occured
+ * @see get_address(void)
  */
 bool Multiplexer::setup(TwoWire *tw, uint8_t address, int data, int clock) {
   if (NULL != tw) {
@@ -152,3 +154,11 @@ bool Multiplexer::select_channel(uint8_t channel) {
 
   return true;
 }
+
+/**
+ * Retrieve the I2C address of the multiplexer.
+ * This is done usually for printing notifications.
+ *
+ * @see setup(TwoWire *tw, uint8_t address, int data, int clock)
+ */
+uint8_t Multiplexer::get_address(void) { return address; }
