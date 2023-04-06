@@ -1,9 +1,11 @@
 /** @file
  *
- * This code is intended to run on an ESP32 (<a hfref="https://www.espressif.com/sites/default/files/documentation/esp32_datasheet_en.pdf">datasheet</a>)
+ * This code is intended to run on an ESP32 (<a
+ * hfref="https://www.espressif.com/sites/default/files/documentation/esp32_datasheet_en.pdf">datasheet</a>)
  * with a TCA9548A I2C multiplexer and generic motion sensor boards.
- * The MPU9250 has first class support, but other sensors may be integrated as well.
- * This firmware is also a departure from the old OneSix_* versions in terms of design.
+ * The MPU9250 has first class support, but other sensors may be integrated as
+ * well. This firmware is also a departure from the old OneSix_* versions in
+ * terms of design.
  *
  * @note This code base is the leading one in terms of features and maturity.
  * @todo clean up setup/config code dependend on controller ID
@@ -12,13 +14,12 @@
  * @todo implement (remote) OSC error logger
  * @todo fix LED identifiers w.r.t to new colors
  */
-// Connections : Please always connect 2 hard mpu (builtin I2C bus) to your specified pins
-// Indicate the numbers of hard, soft I2C, connect the soft I2C in the order of the specified pins
-// Specify your IP address and Wifi
-// Mag calibration desactivated right now, see if it's usefull
-// Eventually speed up if TCA is fast enough
-// The IMU is a MPU-9250, hence the reference in variable names etc.
-
+// Connections : Please always connect 2 hard mpu (builtin I2C bus) to your
+// specified pins Indicate the numbers of hard, soft I2C, connect the soft I2C
+// in the order of the specified pins Specify your IP address and Wifi Mag
+// calibration desactivated right now, see if it's usefull Eventually speed up
+// if TCA is fast enough The IMU is a MPU-9250, hence the reference in variable
+// names etc.
 
 //-------LIBRARIES-------
 // Library to use Arduino commands
@@ -36,29 +37,29 @@
 // internal helper
 #include "multiplexer.h"
 
-
 //-------GENERAL SETTINGS-------
 #define NUMBER_OF_MPU 6 /**< number of IMU (MPU) (boards) attached to the controller  */
 
 // Define the number of the body : 1, 2 or 3
-#define BODY_1  /**< indicate individal controler (and thus configuration) */
+#define BODY_1 /**< indicate individal controler (and thus configuration) */
 
 // Set the magnetic declination of the light
-#define MAG_DECLINATION 2.53  /**< magnetic declination of stage light */
+#define MAG_DECLINATION 2.53 /**< magnetic declination of stage light */
 
 // Define BUTTON to activate the button
-#define BUTTON  /**< indicate existence of button (to trigger calibration procedure) */
-//#define DEBUG  /**< enable more verbose logging to serial line */
+#define BUTTON /**< indicate existence of button (to trigger calibration procedure) */
+// #define DEBUG  /**< enable more verbose logging to serial line */
 //-------END GENERAL SETTINGS-------
 
 //-------BEGIN WIFI SETTINGS--------
-WiFiUDP Udp;                         /**< handler for UDP communication */
-//#define WIFI_SSID "network name"     /**< SSID / name of the wifi network to use */
-//#define WIFI_PASS "access password"  /**< password for the wifi network to use */
-#define WIFI_SSID "ArtNet4Hans"     /**< SSID / name of the wifi network to use */
-#define WIFI_PASS "kaesimira"  /**< password for the wifi network to use */
-IPAddress outIp(192, 168, 0, 2);     /**< IP address of the (target) OSC server */
-int localPort = 8888;                /**< source port for UDP communication on ESP32 */
+WiFiUDP Udp; /**< handler for UDP communication */
+// #define WIFI_SSID "network name"     /**< SSID / name of the wifi network to
+// use */ #define WIFI_PASS "access password"  /**< password for the wifi
+// network to use */
+#define WIFI_SSID "ArtNet4Hans"  /**< SSID / name of the wifi network to use */
+#define WIFI_PASS "kaesimira"    /**< password for the wifi network to use */
+IPAddress outIp(192, 168, 0, 2); /**< IP address of the (target) OSC server */
+int localPort = 8888; /**< source port for UDP communication on ESP32 */
 //-------END WIFI SETTINGS--------
 
 //-------MPU SETTINGS AND FUNCTIONS-------
@@ -66,15 +67,18 @@ int localPort = 8888;                /**< source port for UDP communication on E
 uint16_t cleanUpCounter = 0; /**< count iterations of loop() to trigger clean up periodically */
 
 // Addresses and pin of IMU (MPU-9250) and TCA9548A(=multiplexer)
-#define MPU_ADDRESS_1 0x68           /**< address of the MPU-9250 when its pin AD0 is low */
-#define MPU_ADDRESS_2 0x69           /**< address of the MPU-9250 when its pin AD0 is high */
-#define TCA_ADDRESS_RIGHT_SIDE 0x70  /**< address of the "right side" 8 channel I2C switch */
-#define TCA_ADDRESS_LEFT_SIDE 0x71   /**< address of the "left side" 8 channel I2C switch */
+#define MPU_ADDRESS_1 0x68 /**< address of the MPU-9250 when its pin AD0 is low */
+#define MPU_ADDRESS_2 0x69 /**< address of the MPU-9250 when its pin AD0 is high */
+#define TCA_ADDRESS_RIGHT_SIDE 0x70 /**< address of the "right side" 8 channel I2C switch */
+#define TCA_ADDRESS_LEFT_SIDE  0x71 /**< address of the "left side" 8 channel I2C switch */
 
 // SDA and SCL pin of the soft and hard wire mode
-#define SDA_PIN 21   /**< I2C data pin (on ESP32) */
-#define SCL_PIN 22   /**< I2C clock pin (on ESP32) */
-Multiplexer mux1;    /**< I2C multiplexer for sensor boards */
+#define SDA_PIN 21     /**< I2C data pin (on ESP32) */
+#define SCL_PIN 22     /**< I2C clock pin (on ESP32) */
+Multiplexer right_mux; /**< I2C multiplexer for (right side) sensor boards */
+TwoWire right_tw = TwoWire(0); /**< I2C bus for (right side) multiplexer */
+Multiplexer left_mux; /**< I2C multiplexer for left side sensor boards */
+TwoWire left_tw = TwoWire(1); /**< I2C bus for left side multiplexer */
 
 // LED pin for info showing, BUTTON pin for communication
 #define RED_PIN 32   /**< ESP pin number of red LED */
@@ -85,31 +89,31 @@ Multiplexer mux1;    /**< I2C multiplexer for sensor boards */
 #define ID_PIN3 12   /**< 3rd bit pin of ID DIP switch (D12) */
 #define ID_PIN4 13   /**< 4rd bit pin of ID DIP switch (D13) */
 
-float theta = 0;    /**< angle to the north */
+float theta = 0; /**< angle to the north */
 
-int state = HIGH;        /**< last state of the button */
-int state_button = LOW;  /**< current state of the button */
-
+int state = HIGH;       /**< last state of the button */
+int state_button = LOW; /**< current state of the button */
 
 /**
  * A data structure to handle hardware related data of one Adafruit
  * Precision NXP 9-DOF Breakout Board (i.e. FXOS8700 + FXAS21002).
  *
- * @note This sensor board is deprecated, see https://www.adafruit.com/product/3463
+ * @note This sensor board is deprecated, see
+ * https://www.adafruit.com/product/3463
  *
  * @see MPU9250socket
  * @see MPU9250data
  * @see IOBundle
  */
 struct NXP9DOFsocket {
-  const char* label; /**< human readable identification of the sensor (for OSC path) */
+  const char *label; /**< human readable identification of the sensor (for OSC path) */
   bool usable = false; /**< indicate that sensor (data) is present and no errors occured */
   uint8_t multiplexer; /**< I2C address of the responsible I2C multiplexer */
   uint8_t channel;     /**< channel used on the I2C multiplexer */
   uint8_t address = MPU_ADDRESS_1; /**< I2C address of the NXP9DOF board */
   Adafruit_Sensor *accelerometer; /**< software handler/abstraction for the accelerometer at given channel of given multiplexer */
-  Adafruit_Sensor *gyroscope;     /**< software handler/abstraction for the gyroscope at given channel of given multiplexer */
-  Adafruit_Sensor *magnetometer;  /**< software handler/abstraction for the magnetometer at given channel of given multiplexer */
+  Adafruit_Sensor *gyroscope; /**< software handler/abstraction for the gyroscope at given channel of given multiplexer */
+  Adafruit_Sensor *magnetometer; /**< software handler/abstraction for the magnetometer at given channel of given multiplexer */
 };
 
 /**
@@ -121,7 +125,7 @@ struct NXP9DOFsocket {
  * @see NXP9DOFsocket
  */
 struct MPU9250socket {
-  const char* label; /**< human readable identification of the sensor (for OSC path) */
+  const char *label; /**< human readable identification of the sensor (for OSC path) */
   bool usable = false; /**< indicate that sensor (data) is present and no errors occured */
   uint8_t multiplexer; /**< I2C address of the responsible I2C multiplexer */
   uint8_t channel;     /**< channel used on the I2C multiplexer */
@@ -130,93 +134,96 @@ struct MPU9250socket {
 };
 
 /**
- * This data structure models a quaternion for easier access to its component data.
+ * This data structure models a quaternion for easier access to its component
+ * data.
  *
  * @see MPU9250data
  * @see EulerAngle
  * @see GyroValue
  */
 struct Quaternion {
-	float x = 0.0; /**< The x value of the quaternion */
-	float y = 0.0; /**< The y value of the quaternion */
-	float z = 0.0; /**< The z value of the quaternion */
-	float w = 0.0; /**< The w value of the quaternion */
+  float x = 0.0; /**< The x value of the quaternion */
+  float y = 0.0; /**< The y value of the quaternion */
+  float z = 0.0; /**< The z value of the quaternion */
+  float w = 0.0; /**< The w value of the quaternion */
 };
 
 /**
- * This data structure models an Euler angle for easier access to its component data.
+ * This data structure models an Euler angle for easier access to its component
+ * data.
  *
  * @see MPU9250data
  * @see Quaternion
  * @see GyroValue
  */
 struct EulerAngle {
-	float x = 0.0; /**< The x-axis value of the Euler angle */
-	float y = 0.0; /**< The y-axis value of the Euler angle */
-	float z = 0.0; /**< The z-axis value of the Euler angle */
+  float x = 0.0; /**< The x-axis value of the Euler angle */
+  float y = 0.0; /**< The y-axis value of the Euler angle */
+  float z = 0.0; /**< The z-axis value of the Euler angle */
 };
 
 /**
- * This data structure models gyroscope data for easier access to its component data.
+ * This data structure models gyroscope data for easier access to its component
+ * data.
  *
  * @see MPU9250data
  * @see Quaternion
  * @see EulerAngle
  */
 struct GyroValue {
-	float x = 0.0; /**< The x-axis value of the gyroscope */
-	float y = 0.0; /**< The y-axis value of the gyroscope */
-	float z = 0.0; /**< The z-axis value of the gyroscope */
+  float x = 0.0; /**< The x-axis value of the gyroscope */
+  float y = 0.0; /**< The y-axis value of the gyroscope */
+  float z = 0.0; /**< The z-axis value of the gyroscope */
 };
 
 /**
  * A model of the data retrieved from a MPU9250.
- * 
+ *
  * @note This is not a model for the sensor board itself.
  * @see MPU9250socket
  * @see IOBundle
  */
 struct MPU9250data {
-	Quaternion quaternion; /**< gyroscope data as quaternion */
-	EulerAngle eulerangle; /**< gyroscope data as Euler angle */
-	GyroValue gyrovalue;   /**< gyroscope data along axis */
+  Quaternion quaternion; /**< gyroscope data as quaternion */
+  EulerAngle eulerangle; /**< gyroscope data as Euler angle */
+  GyroValue gyrovalue;   /**< gyroscope data along axis */
 };
 
 /**
  * A bundle to handle all communication from sensor to OSC message.
- * 
+ *
  * @see MPU9250socket
  * @see MPU9250data
  */
 struct IOBundle {
-	MPU9250socket socket;  /**< the source for the (sensor) data */
-	MPU9250data data;      /**< the temporary storage for the (sensor) data */
-	OSCMessage message;    /**< the target (OSC) destination for the (sensor) data */
+  MPU9250socket socket; /**< the source for the (sensor) data */
+  MPU9250data data;     /**< the temporary storage for the (sensor) data */
+  OSCMessage message; /**< the target (OSC) destination for the (sensor) data */
 };
-    
+
 // manually create indexes to emulate a hashmap with an array
 // Note that this is just the order in a global list and has no
 // connection to the sensor jacks. Look at MPU9250Socket & IOBundle
 // to fiddle with the physical routing/data tagging.
-#define LEFT_UPPER_ARM_INDEX 1  /**< index for the sensor at the left upper arm (brachium) */
+#define LEFT_UPPER_ARM_INDEX  1 /**< index for the sensor at the left upper arm (brachium) */
 #define RIGHT_UPPER_ARM_INDEX 3 /**< index for the sensor at the right upper arm (brachium) */
-#define LEFT_FOOT_INDEX 2       /**< index for the sensor at the left foot (pes) */
-#define RIGHT_FOOT_INDEX 5      /**< index for the sensor at the right foot (pes) */
-#define BACK_INDEX 4            /**< index for the sensor at the back (dorsum) */
-#define HEAD_INDEX 0            /**< index for the sensor at the head (cranium) */
-#define LEFT_LOWER_ARM_INDEX 6  /**< index for the sensor at the left lower arm (antebrachium) */
+#define LEFT_FOOT_INDEX 2  /**< index for the sensor at the left foot (pes) */
+#define RIGHT_FOOT_INDEX 5 /**< index for the sensor at the right foot (pes) */
+#define BACK_INDEX 4       /**< index for the sensor at the back (dorsum) */
+#define HEAD_INDEX 0       /**< index for the sensor at the head (cranium) */
+#define LEFT_LOWER_ARM_INDEX 6 /**< index for the sensor at the left lower arm (antebrachium) */
 #define RIGHT_LOWER_ARM_INDEX 7 /**< index for the sensor at the right lower arm (antebrachium) */
-#define LEFT_UPPER_LEG_INDEX 8  /**< index for the sensor at the left thigh (femur) */
+#define LEFT_UPPER_LEG_INDEX 8 /**< index for the sensor at the left thigh (femur) */
 #define RIGHT_UPPER_LEG_INDEX 9 /**< index for the sensor at the right thigh (femur) */
 
 // Instance to store data on ESP32, name of the preference
-Preferences preferences;  /**< container for preferences to be stored in non-volatile memory on ESP32 */
+Preferences preferences; /**< container for preferences to be stored in non-volatile memory on ESP32 */
 
 // MPU9250 settings and data storage
-IOBundle iobundle[NUMBER_OF_MPU];  /**< one global handler to deal with MPU9250 data (communication) to be accessed by index */
-float accbias[6][3];     /**< bias/drift/offset profile for the accelerator */
-float gyrobias[6][3];    /**< bias/drift/offset profile for the gyroscope */
-MPU9250Setting setting;  /**< configuration settings of the MPU9250 stored in memory */
+IOBundle iobundle[NUMBER_OF_MPU]; /**< one global handler to deal with MPU9250 data (communication) to be accessed by index */
+float accbias[6][3];  /**< bias/drift/offset profile for the accelerator */
+float gyrobias[6][3]; /**< bias/drift/offset profile for the gyroscope */
+MPU9250Setting setting; /**< configuration settings of the MPU9250 stored in memory */
 
 /**
  * Switch to the given channel on the multiplexer for I2C communication.
@@ -279,21 +286,21 @@ uint8_t countI2cDevices() {
 
       Serial.print(address, HEX);
       switch (address) {
-        case MPU_ADDRESS_1:
-          Serial.println(" (probably MPU9250)");
-          break;
-        case MPU_ADDRESS_2:
-          Serial.println(" (probably MPU9250)");
-          break;
-        case TCA_ADDRESS_LEFT_SIDE:
-          Serial.println(" (probably TCA9548A)");
-          break;
-        case TCA_ADDRESS_RIGHT_SIDE:
-          Serial.println(" (probably TCA9548A)");
-          break;
-        default:
-          Serial.println();
-	  }
+      case MPU_ADDRESS_1:
+        Serial.println(" (probably MPU9250)");
+        break;
+      case MPU_ADDRESS_2:
+        Serial.println(" (probably MPU9250)");
+        break;
+      case TCA_ADDRESS_LEFT_SIDE:
+        Serial.println(" (probably TCA9548A)");
+        break;
+      case TCA_ADDRESS_RIGHT_SIDE:
+        Serial.println(" (probably TCA9548A)");
+        break;
+      default:
+        Serial.println();
+      }
 
       // and we increase the number of devices found
       deviceCount++;
@@ -318,19 +325,21 @@ uint8_t countI2cDevices() {
     Serial.println("done");
   }
 
-  //delay(5000); // wait 5 seconds for next scan - TODO: remove?
+  // delay(5000); // wait 5 seconds for next scan - TODO: remove?
   return deviceCount;
 }
 
 //-------WIFI SETTINGS AND FUNCTIONS-------
 #ifdef BODY_1
-int outPort = 8000;  /**< UDP server port on OSC receiver (i.e. central server) */
+int outPort = 8000; /**< UDP server port on OSC receiver (i.e. central server) */
 /** OSC messages with senor values for given part */
-OSCMessage body[] = {
-    OSCMessage("/body/1/gyro/left_upper_arm/"), OSCMessage("/body/1/gyro/right_upper_arm/"),
-    OSCMessage("/body/1/gyro/left_foot/"), OSCMessage("/body/1/gyro/right_foot/"),
-    OSCMessage("/body/1/gyro/back/"), OSCMessage("/body/1/gyro/head/")};
-OSCMessage calibration("/calibration/1");  /**< OSC endpoint for calibration messages */
+OSCMessage body[] = {OSCMessage("/body/1/gyro/left_upper_arm/"),
+                     OSCMessage("/body/1/gyro/right_upper_arm/"),
+                     OSCMessage("/body/1/gyro/left_foot/"),
+                     OSCMessage("/body/1/gyro/right_foot/"),
+                     OSCMessage("/body/1/gyro/back/"),
+                     OSCMessage("/body/1/gyro/head/")};
+OSCMessage calibration("/calibration/1"); /**< OSC endpoint for calibration messages */
 /** scaling factors for magnetometer */
 float magscale[6][3] = {{1.01, 1.06, 0.94}, {1.01, 1.00, 0.99},
                         {1.04, 0.98, 0.98}, {1.06, 0.97, 0.98},
@@ -342,13 +351,15 @@ float magbias[6][3] = {{-40.82, -108.61, -405.33}, {128.62, 104.29, -164.14},
 #endif
 
 #ifdef BODY_2
-int outPort = 8001;  /**< UDP server port on OSC receiver (i.e. central server) */
+int outPort = 8001; /**< UDP server port on OSC receiver (i.e. central server) */
 /** OSC messages with senor values for given part */
-OSCMessage body[] = {
-    OSCMessage("/body/2/gyro/left_upper_arm/"), OSCMessage("/body/2/gyro/right_upper_arm/"),
-    OSCMessage("/body/2/gyro/left_foot/"), OSCMessage("/body/2/gyro/right_foot/"),
-    OSCMessage("/body/2/gyro/back/"), OSCMessage("/body/2/gyro/head/")};
-OSCMessage calibration("/calibration/2");  /**< OSC endpoint for calibration messages */
+OSCMessage body[] = {OSCMessage("/body/2/gyro/left_upper_arm/"),
+                     OSCMessage("/body/2/gyro/right_upper_arm/"),
+                     OSCMessage("/body/2/gyro/left_foot/"),
+                     OSCMessage("/body/2/gyro/right_foot/"),
+                     OSCMessage("/body/2/gyro/back/"),
+                     OSCMessage("/body/2/gyro/head/")};
+OSCMessage calibration("/calibration/2"); /**< OSC endpoint for calibration messages */
 /** scaling factors for magnetometer */
 float magscale[6][3] = {{0.99, 1.01, 1.00}, {0.98, 1.00, 1.02},
                         {0.98, 1.03, 0.98}, {1.03, 0.99, 0.99},
@@ -360,18 +371,20 @@ float magbias[6][3] = {{98.40, -5.27, -345.30}, {399.67, 242.51, -126.99},
 #endif
 
 #ifdef BODY_3
-int outPort = 8002;  /**< UDP server port on OSC receiver (i.e. central server) */
+int outPort = 8002; /**< UDP server port on OSC receiver (i.e. central server) */
 /** OSC messages with senor values for given part */
-OSCMessage body[] = {
-    OSCMessage("/body/3/gyro/left_upper_arm/"), OSCMessage("/body/3/gyro/right_upper_arm/"),
-    OSCMessage("/body/3/gyro/left_foot/"), OSCMessage("/body/3/gyro/right_foot/"),
-    OSCMessage("/body/3/gyro/back/"), OSCMessage("/body/3/gyro/head/")};
-OSCMessage calibration("/calibration/3");  /**< OSC endpoint for calibration messages */
+OSCMessage body[] = {OSCMessage("/body/3/gyro/left_upper_arm/"),
+                     OSCMessage("/body/3/gyro/right_upper_arm/"),
+                     OSCMessage("/body/3/gyro/left_foot/"),
+                     OSCMessage("/body/3/gyro/right_foot/"),
+                     OSCMessage("/body/3/gyro/back/"),
+                     OSCMessage("/body/3/gyro/head/")};
+OSCMessage calibration("/calibration/3"); /**< OSC endpoint for calibration messages */
 #endif
 
 /**
  * This function establishes a connection to the preconfigured wifi network.
- * 
+ *
  * @see #WIFI_SSID
  * @see #WIFI_PASS
  * @see startUdp()
@@ -388,7 +401,8 @@ void connectWiFi() {
   WiFi.begin(WIFI_SSID, WIFI_PASS);
 
   long start = millis();
-  // try for ten seconds to connect every 500 ms (i.e. make 10000/500 = 20 attempts)
+  // try for ten seconds to connect every 500 ms (i.e. make 10000/500 = 20
+  // attempts)
   while (WiFi.status() != WL_CONNECTED && millis() - start < 10000) {
     Serial.print(".");
     delay(500);
@@ -398,7 +412,7 @@ void connectWiFi() {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println(" failed");
   } else {
-	Serial.println(" succeeded");
+    Serial.println(" succeeded");
     Serial.print("local IP address is ");
     Serial.println(WiFi.localIP());
   }
@@ -406,7 +420,7 @@ void connectWiFi() {
 
 /**
  * Set up UDP communication locally.
- * 
+ *
  * @param port local port to bind to
  * @see localPort
  * @see connectWiFi()
@@ -415,8 +429,8 @@ void startUdp(int port) {
   Serial.print("Starting UDP connection to local port ");
   Serial.print(port);
   if (0 == Udp.begin(port)) {
-	  // no socket available for use
-	  Serial.println(" ... failed");
+    // no socket available for use
+    Serial.println(" ... failed");
   }
   Serial.println(" ... succeeded");
 }
@@ -433,16 +447,16 @@ uint8_t getControllerID() {
 
   // read the switch state from left to right and add value at position
   if (HIGH == digitalRead(ID_PIN1)) {
-	id = 8;
+    id = 8;
   }
   if (HIGH == digitalRead(ID_PIN2)) {
-	id += 4;
+    id += 4;
   }
   if (HIGH == digitalRead(ID_PIN3)) {
-	id += 2;
+    id += 2;
   }
   if (HIGH == digitalRead(ID_PIN4)) {
-	id += 1;
+    id += 1;
   }
   return id;
 }
@@ -461,7 +475,7 @@ void manualMagnetometerCalibration() {
 
   // go through each sensor socket
   for (uint8_t i = 0; i < NUMBER_OF_MPU; i++) {
-	// blink LEDs to indicate calibration going on
+    // blink LEDs to indicate calibration going on
     if (state == HIGH) {
       digitalWrite(YEL_PIN, state);
       state = LOW;
@@ -477,7 +491,8 @@ void manualMagnetometerCalibration() {
 
     Serial.println(i);
 
-    if (!selectI2cMultiplexerChannel(iobundle[i].socket.multiplexer, iobundle[i].socket.channel)) {
+    if (!selectI2cMultiplexerChannel(iobundle[i].socket.multiplexer,
+                                     iobundle[i].socket.channel)) {
       Serial.print("could not select channel ");
       Serial.print(iobundle[i].socket.channel);
       Serial.print(" on multiplexer at address ");
@@ -489,7 +504,6 @@ void manualMagnetometerCalibration() {
     calibration.empty();
   }
 }
-
 
 /**
  * Calibrate the magnetometer (i.e. set north) automatically. This requires
@@ -509,12 +523,13 @@ void automaticMagnetometerCalibration() {
 
   for (uint8_t i = 0; i < NUMBER_OF_MPU; i++) {
     iobundle[i].socket.mpu.setMagneticDeclination(MAG_DECLINATION);
-    iobundle[i].socket.mpu.setMagBias(magbias[i][0], magbias[i][1], magbias[i][2]);
-    iobundle[i].socket.mpu.setMagScale(magscale[i][0], magscale[i][1], magscale[i][2]);
+    iobundle[i].socket.mpu.setMagBias(magbias[i][0], magbias[i][1],
+                                      magbias[i][2]);
+    iobundle[i].socket.mpu.setMagScale(magscale[i][0], magscale[i][1],
+                                       magscale[i][2]);
   }
   Serial.println("Mag calibration done");
 }
-
 
 /**
  * Count the number of I2C multiplexer attached to the controller.
@@ -542,7 +557,7 @@ uint8_t countMultiplexer() {
   // we try to talk to expected multiplexers
   Wire.beginTransmission(TCA_ADDRESS_LEFT_SIDE);
   result = Wire.endTransmission(true);
-  switch(result) {
+  switch (result) {
   case 0:
     // talking was successful, we found a device at the current address
     deviceCount += 1;
@@ -568,7 +583,7 @@ uint8_t countMultiplexer() {
   // doing it again
   Wire.beginTransmission(TCA_ADDRESS_RIGHT_SIDE);
   result = Wire.endTransmission(true);
-  switch(result) {
+  switch (result) {
   case 0:
     // talking was successful, we found a device at the current address
     deviceCount += 1;
@@ -583,7 +598,7 @@ uint8_t countMultiplexer() {
     break;
   }
 
-  //delay(5000); // wait 5 seconds for next scan - TODO: remove?
+  // delay(5000); // wait 5 seconds for next scan - TODO: remove?
   return deviceCount;
 }
 
@@ -595,10 +610,11 @@ uint8_t countMultiplexer() {
  * @param stk is a pointer to the sensor (socket) to configure
  * @see checkAndConfigureGyros()
  * @see loadMPU9250CalibrationData(MPU9250socket *skt)
- * @warning This function is not thread-safe (i.e. due to calling selectI2cMultiplexerChannel())
+ * @warning This function is not thread-safe (i.e. due to calling
+ * selectI2cMultiplexerChannel())
  * @note stack size is about 1500*32bit
  */
-void configureMPU9250(MPU9250socket* skt) {
+void configureMPU9250(MPU9250socket *skt) {
   // MPU parameters (sensitivity, etc)
   setting.accel_fs_sel = ACCEL_FS_SEL::A4G;
   setting.gyro_fs_sel = GYRO_FS_SEL::G500DPS;
@@ -768,7 +784,8 @@ void checkAndConfigureGyros() {
  * Calibrate the Accelerometers and store calibration data.
  *
  * @note The device should not be moved during the calibration procedure.
- * @note This function clears the calibration data storage on the controller to avoid the accumulation of outdated calibration data.
+ * @note This function clears the calibration data storage on the controller to
+ * avoid the accumulation of outdated calibration data.
  *
  * @see buttonBasedCalibration()
  * @see passiveMagnetometerCalibration()
@@ -785,8 +802,8 @@ void passiveAccelerometerCalibration() {
   digitalWrite(RED_PIN, HIGH);
   Serial.println("calibrating accelerometer for");
   for (uint8_t i = 0; i < NUMBER_OF_MPU; i++) {
-	Serial.print(" * ");
-	Serial.print(iobundle[i].socket.label);
+    Serial.print(" * ");
+    Serial.print(iobundle[i].socket.label);
     if (!iobundle[i].socket.usable) {
       Serial.println(" skipped because sensor is unusable");
       continue;
@@ -810,18 +827,18 @@ void passiveAccelerometerCalibration() {
   Serial.print("storing accelerometer calibration data .");
   for (uint8_t i = 0; i < NUMBER_OF_MPU; i++) {
     // create writable namespace to store data in NVS
-    if(!preferences.begin(iobundle[i].socket.label, false)) {
-        Serial.println(".. failed");
-        Serial.print("could not open data store for ");
-        Serial.println(iobundle[i].socket.label);
-	    continue;
+    if (!preferences.begin(iobundle[i].socket.label, false)) {
+      Serial.println(".. failed");
+      Serial.print("could not open data store for ");
+      Serial.println(iobundle[i].socket.label);
+      continue;
     }
     // remove old data/key-value pairs of avoid accumulation
-    if(!preferences.clear()) {
-        Serial.println(".. failed");
-        Serial.print("could clean up data store for ");
-        Serial.println(iobundle[i].socket.label);
-        continue;
+    if (!preferences.clear()) {
+      Serial.println(".. failed");
+      Serial.print("could clean up data store for ");
+      Serial.println(iobundle[i].socket.label);
+      continue;
     }
 
     preferences.putFloat("accbiasX", iobundle[i].socket.mpu.getAccBiasX());
@@ -852,8 +869,8 @@ void passiveMagnetometerCalibration() {
 
   Serial.println("calibrating magnetometer for");
   for (uint8_t i = 0; i < NUMBER_OF_MPU; i++) {
-	Serial.print(" * ");
-	Serial.print(iobundle[i].socket.label);
+    Serial.print(" * ");
+    Serial.print(iobundle[i].socket.label);
     if (!iobundle[i].socket.usable) {
       Serial.println(" skipped because sensor is unusable");
       continue;
@@ -890,11 +907,11 @@ void passiveMagnetometerCalibration() {
   Serial.print("storing magnetometer calibration data .");
   for (uint8_t i = 0; i < NUMBER_OF_MPU; i++) {
     // create writable namespace to store data in NVS
-    if(!preferences.begin(iobundle[i].socket.label, false)) {
-        Serial.println(".. failed");
-        Serial.print("could not open data store for ");
-        Serial.println(iobundle[i].socket.label);
-	    continue;
+    if (!preferences.begin(iobundle[i].socket.label, false)) {
+      Serial.println(".. failed");
+      Serial.print("could not open data store for ");
+      Serial.println(iobundle[i].socket.label);
+      continue;
     }
 
     preferences.putFloat("magbiasX", iobundle[i].socket.mpu.getMagBiasX());
@@ -928,7 +945,9 @@ void calibrateNorth() {
   digitalWrite(YEL_PIN, HIGH);
 
   // sample the MPU for 10 seconds to have the good yaw if we need it
-  if (!selectI2cMultiplexerChannel(iobundle[LEFT_UPPER_ARM_INDEX].socket.multiplexer, iobundle[LEFT_UPPER_ARM_INDEX].socket.channel)) {
+  if (!selectI2cMultiplexerChannel(
+          iobundle[LEFT_UPPER_ARM_INDEX].socket.multiplexer,
+          iobundle[LEFT_UPPER_ARM_INDEX].socket.channel)) {
     Serial.print("could not select channel ");
     Serial.print(iobundle[LEFT_UPPER_ARM_INDEX].socket.channel);
     Serial.print(" on multiplexer at address 0x");
@@ -959,16 +978,16 @@ void calibrateNorth() {
     theta = iobundle[LEFT_UPPER_ARM_INDEX].socket.mpu.getYaw() * (-1);
 
     // save angle to north in writable NVS namespace
-    if(!preferences.begin("setNorth", false)) {
-        Serial.println(".. failed");
-        Serial.println("could not open data store");
-	    return;
+    if (!preferences.begin("setNorth", false)) {
+      Serial.println(".. failed");
+      Serial.println("could not open data store");
+      return;
     }
     // remove old data/key-value pairs of avoid accumulation
-    if(!preferences.clear()) {
-        Serial.println(".. failed");
-        Serial.println("could clean up data store");
-        return;
+    if (!preferences.clear()) {
+      Serial.println(".. failed");
+      Serial.println("could clean up data store");
+      return;
     }
     preferences.putFloat("north", theta);
     preferences.end();
@@ -1015,10 +1034,10 @@ void buttonBasedCalibration() {
     // magnetometer: get data calibration + calibrate
     passiveMagnetometerCalibration();
   } else {
-	// button not pushed: read the stored calibration data and calibrate
-	Serial.println("loading calibration data");
-	for (uint8_t i = 0; i < NUMBER_OF_MPU; i++) {
-	  loadMPU9250CalibrationData(&iobundle[i].socket);
+    // button not pushed: read the stored calibration data and calibrate
+    Serial.println("loading calibration data");
+    for (uint8_t i = 0; i < NUMBER_OF_MPU; i++) {
+      loadMPU9250CalibrationData(&iobundle[i].socket);
     }
     Serial.println("previous calibration data loaded");
   }
@@ -1046,8 +1065,8 @@ void buttonBasedCalibration() {
   preferences.begin("setNorth", true);
   Serial.println("setting north for");
   for (uint8_t i = 0; i < NUMBER_OF_MPU; i++) {
-	Serial.print(" * ");
-	Serial.print(iobundle[i].socket.label);
+    Serial.print(" * ");
+    Serial.print(iobundle[i].socket.label);
     iobundle[i].socket.mpu.setNorth(preferences.getFloat("north", 0.0));
     Serial.println(" ... done");
   }
@@ -1070,9 +1089,11 @@ void buttonBasedCalibration() {
 }
 
 /**
- * Do the accelerometer and magnetometer calibration when no button is available.
+ * Do the accelerometer and magnetometer calibration when no button is
+ * available.
  *
- * @param autocalibration indicate if automatic (vs. manual) calibration of the magnetometer is to be done
+ * @param autocalibration indicate if automatic (vs. manual) calibration of the
+ * magnetometer is to be done
  * @todo maybe remove since hardware has button now?
  * @see buttonBasedCalibration()
  * @see setup()
@@ -1097,7 +1118,8 @@ void noButtonCalibration(bool autocalibration = true) {
     }
     Serial.print("calibrating sensor for ");
     Serial.println(iobundle[i].socket.label);
-    if (!selectI2cMultiplexerChannel(iobundle[i].socket.multiplexer, iobundle[i].socket.channel)) {
+    if (!selectI2cMultiplexerChannel(iobundle[i].socket.multiplexer,
+                                     iobundle[i].socket.channel)) {
       Serial.print("could not select channel ");
       Serial.print(iobundle[i].socket.channel);
       Serial.print(" on multiplexer at address 0x");
@@ -1142,7 +1164,7 @@ void fetchData() {
       Serial.println(iobundle[i].socket.multiplexer);
     }
     if (iobundle[i].socket.usable) {
-      if(!iobundle[i].socket.mpu.update()) {
+      if (!iobundle[i].socket.mpu.update()) {
         // too harsh?
         iobundle[i].socket.usable = false;
       }
@@ -1172,11 +1194,25 @@ void fetchData() {
 }
 
 /**
+ * A tiny helper function to stop the controller from booting / processing
+ * data further.
+ *
+ * @see setup()
+ * @see loop()
+ */
+void stop_processing() {
+  Serial.println("stopping all processing ...");
+  // put ESP32 into deep sleep (closest to shutdown)
+  esp_deep_sleep_start();
+}
+
+/**
  * Main setup / initialisation routine.
  *
  * @see connectWiFi()
  * @see startUdp()
  * @see loop()
+ * @see stop_processing()
  */
 void setup() {
   //-------HARDWARE SETUP-------
@@ -1214,16 +1250,23 @@ void setup() {
   Serial.print(" port ");
   Serial.println(outPort);
 
-
   //-------MPU SETUP------
   // Launch comm with multiplexer
-  Serial.print("setting up I2C pins .");
-  Wire.begin(SDA_PIN, SCL_PIN);
-  delay(2000);
-  Serial.println(".. done");
+  Serial.println("setting up I2C ...");
+  Serial.print("* right side multiplexer .");
+  if (!right_mux.setup(&right_tw, TCA_ADDRESS_RIGHT_SIDE, SDA_PIN, SCL_PIN)) {
+    Serial.println(".. failed");
+    stop_processing();
+  } else {
+    delay(2000);
+    Serial.println(".. done");
+  }
 
-  // all senor adressing
+  // all sensor adressing
   Serial.print("setting up sensor sockets .");
+  // 1 right side multiplexer & 6 MPU: prototype board
+  // 2 multiplexer & 10 MPU: 10 sensor board
+  // maybe test for different busses?
 #ifdef DEBUG
   Serial.print("found ");
   Serial.print(countMultiplexer());
@@ -1245,19 +1288,23 @@ void setup() {
     iobundle[LEFT_UPPER_ARM_INDEX].socket.multiplexer = TCA_ADDRESS_RIGHT_SIDE;
     iobundle[LEFT_UPPER_ARM_INDEX].socket.channel = 1;
 #ifdef BODY_1
-    iobundle[LEFT_UPPER_ARM_INDEX].message = OSCMessage("/body/1/gyro/left_upper_arm/");
+    iobundle[LEFT_UPPER_ARM_INDEX].message =
+        OSCMessage("/body/1/gyro/left_upper_arm/");
 #endif
 #ifdef BODY_2
-    iobundle[LEFT_UPPER_ARM_INDEX].message = OSCMessage("/body/2/gyro/left_upper_arm/");
+    iobundle[LEFT_UPPER_ARM_INDEX].message =
+        OSCMessage("/body/2/gyro/left_upper_arm/");
 #endif
     iobundle[RIGHT_UPPER_ARM_INDEX].socket.label = "right_upper_arm";
     iobundle[RIGHT_UPPER_ARM_INDEX].socket.multiplexer = TCA_ADDRESS_RIGHT_SIDE;
     iobundle[RIGHT_UPPER_ARM_INDEX].socket.channel = 3;
 #ifdef BODY_1
-    iobundle[RIGHT_UPPER_ARM_INDEX].message = OSCMessage("/body/1/gyro/right_upper_arm/");
+    iobundle[RIGHT_UPPER_ARM_INDEX].message =
+        OSCMessage("/body/1/gyro/right_upper_arm/");
 #endif
 #ifdef BODY_2
-    iobundle[RIGHT_UPPER_ARM_INDEX].message = OSCMessage("/body/2/gyro/right_upper_arm/");
+    iobundle[RIGHT_UPPER_ARM_INDEX].message =
+        OSCMessage("/body/2/gyro/right_upper_arm/");
 #endif
     iobundle[LEFT_FOOT_INDEX].socket.label = "left_foot";
     iobundle[LEFT_FOOT_INDEX].socket.multiplexer = TCA_ADDRESS_RIGHT_SIDE;
@@ -1355,7 +1402,8 @@ void setup() {
     // add the additional iobundle if build is configured that way
     if (10 == NUMBER_OF_MPU) {
       iobundle[RIGHT_LOWER_ARM_INDEX].socket.label = "right_lower_arm";
-      iobundle[RIGHT_LOWER_ARM_INDEX].socket.multiplexer = TCA_ADDRESS_RIGHT_SIDE;
+      iobundle[RIGHT_LOWER_ARM_INDEX].socket.multiplexer =
+          TCA_ADDRESS_RIGHT_SIDE;
       iobundle[RIGHT_LOWER_ARM_INDEX].socket.channel = 3;
 #ifdef BODY_1
       iobundle[RIGHT_LOWER_ARM_INDEX].message = OSCMessage("/body/1/gyro/right_lower_arm/");
@@ -1384,12 +1432,12 @@ void setup() {
       iobundle[LEFT_UPPER_LEG_INDEX].socket.label = "left_upper_leg";
       iobundle[LEFT_UPPER_LEG_INDEX].socket.multiplexer = TCA_ADDRESS_LEFT_SIDE;
       iobundle[LEFT_UPPER_LEG_INDEX].socket.channel = 4;
- #ifdef BODY_1
+#ifdef BODY_1
       iobundle[LEFT_UPPER_LEG_INDEX].message = OSCMessage("/body/1/gyro/left_upper_leg/");
 #endif
 #ifdef BODY_2
       iobundle[LEFT_UPPER_LEG_INDEX].message = OSCMessage("/body/2/gyro/left_upper_leg/");
-#endif 
+#endif
     }
     break;
   default:
@@ -1422,7 +1470,8 @@ void setup() {
   //Print/send the calibration of magnetometer - USE IT TO AUTO CALIB AGAIN
   Serial.println("Calibration data :");
   for(int i=0; i<NUMBER_OF_MPU; i++) {
-    selectI2cMultiplexerChannel(iobundle[i].socket.multiplexer, iobundle[i].socket.channel);
+    selectI2cMultiplexerChannel(iobundle[i].socket.multiplexer,
+  iobundle[i].socket.channel);
 
     //Send calibration data to TouchDesigner
     calibration.add("MAGSCALE").add(i).add(mpu[i].getMagScaleX()).add(mpu[i].getMagScaleY()).add(mpu[i].getMagScaleZ());
@@ -1442,8 +1491,9 @@ void setup() {
 /**
  * This main processing loop periodically retrieves the sensor data,
  * cleans it, and passes it on via OSC.
- * 
+ *
  * @see setup()
+ * @see stop_processing()
  * @todo check for errors in MPU data update
  * @todo log error remotely
  */
@@ -1472,7 +1522,7 @@ void loop() {
 
   //-------OSC communication if wifi is available --------
   if (WiFi.status() == WL_CONNECTED) {
-	// Send data in separate message per sensor
+    // Send data in separate message per sensor
     for (size_t i = 0; i < NUMBER_OF_MPU; i++) {
       // skip sensors with problems
       if (!iobundle[i].socket.usable) {
@@ -1517,8 +1567,8 @@ void loop() {
       if (iobundle[i].socket.usable) {
         Serial.println(" ... worked");
       } else {
-		// could not configure the MPU, so
-		// ... make sure socket is marked unusable
+        // could not configure the MPU, so
+        // ... make sure socket is marked unusable
         iobundle[i].socket.usable = false;
         Serial.println(" ... failed");
         // return early to avoid unnecessary further work
