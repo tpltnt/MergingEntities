@@ -4,6 +4,8 @@
  */
 #include <Wire.h>
 
+#define DEBUG
+
 /**
  * An abstraction to make I2C connection thread safe(r).
  *
@@ -48,14 +50,24 @@ Multiplexer::Multiplexer(void) {
  */
 bool Multiplexer::setup(TwoWire *tw, uint8_t address, int data, int clock) {
   if (NULL != tw) {
+#ifdef DEBUG
+    Serial.println("TwoWire pointer is NULL");
+#endif
     return false;
   }
   if (locked) {
+#ifdef DEBUG
+  Serial.println("multiplexer locked, no setup possible");
+#endif
     return false;
   }
   i2c = tw;
   this->address = address;
-  return i2c->begin(data, clock, 100000);
+#ifdef DEBUG
+  Serial.print("address 0x");
+  Serial.println(address, HEX);
+#endif
+  return i2c->begin(data, clock);
 }
 
 /**
