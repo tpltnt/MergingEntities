@@ -73,10 +73,12 @@ uint16_t cleanUpCounter = 0; /**< count iterations of loop() to trigger clean up
 #define TCA_ADDRESS_LEFT_SIDE  0x71 /**< address of the "left side" 8 channel I2C switch */
 
 // SDA and SCL pin of the soft and hard wire mode
-#define SDA_PIN 21     /**< I2C data pin (on ESP32) */
-#define SCL_PIN 22     /**< I2C clock pin (on ESP32) */
+#define R_SDA_PIN 22     /**< right side I2C data pin (on ESP32) */
+#define R_SCL_PIN 21     /**< right side I2C clock pin (on ESP32) */
 Multiplexer right_mux; /**< I2C multiplexer for (right side) sensor boards */
 TwoWire right_tw = TwoWire(0); /**< I2C bus for (right side) multiplexer */
+#define L_SDA_PIN 25     /**< left side I2C data pin (on ESP32) */
+#define L_SCL_PIN 26     /**< left side I2C clock pin (on ESP32) */
 Multiplexer left_mux; /**< I2C multiplexer for left side sensor boards */
 TwoWire left_tw = TwoWire(1); /**< I2C bus for left side multiplexer */
 
@@ -1251,10 +1253,18 @@ void setup() {
   Serial.println(outPort);
 
   //-------MPU SETUP------
-  // Launch comm with multiplexer
+  // This setup assumes two multiplexer on two different busses.
   Serial.println("setting up I2C ...");
   Serial.print("* right side multiplexer .");
-  if (!right_mux.setup(&right_tw, TCA_ADDRESS_RIGHT_SIDE, SDA_PIN, SCL_PIN)) {
+  if (!right_mux.setup(&right_tw, TCA_ADDRESS_RIGHT_SIDE, R_SDA_PIN, R_SCL_PIN)) {
+    Serial.println(".. failed");
+    stop_processing();
+  } else {
+    delay(2000);
+    Serial.println(".. done");
+  }
+  Serial.print("* left side multiplexer .");
+  if (!left_mux.setup(&left_tw, TCA_ADDRESS_LEFT_SIDE, L_SDA_PIN, L_SCL_PIN)) {
     Serial.println(".. failed");
     stop_processing();
   } else {
