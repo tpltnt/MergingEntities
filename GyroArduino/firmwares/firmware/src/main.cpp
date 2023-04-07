@@ -163,6 +163,71 @@ enum SensorType {
 };
 
 /**
+ * Scan for a known (and possibly supported) sensor and return the first
+ * device found.
+ *
+ * @note A multiplexer and channel needs to be selected beforehand.
+ * @return SensorType found, "unknown" if nothing relevant was found
+ * @see selectI2cMultiplexerChannel
+ */
+SensorType scanForSensor() {
+  byte error;
+#ifdef DEBUG
+  Serial.println("scanning for known sensors ...");
+#endif
+
+  // go through each possible address
+  for (uint8_t address = 1; address < 127; address++) {
+    // try to initiate a conversation
+    Wire.beginTransmission(address);
+    error = Wire.endTransmission();
+
+    if (error == 0) {
+      // if talking was successful, we found a
+      // device at the current address and print that
+#ifdef DEBUG
+      Serial.print("I2C device found at address 0x");
+      if (address < 16) {
+		// pad leading 0
+        Serial.print("0");
+      }
+      Serial.println(address, HEX);
+
+#endif
+      switch(address) {
+        case 0x1C:
+          return SensorType::nxp9dof;
+        case 0x1D:
+          return SensorType::nxp9dof;
+        case 0x1E:
+          return SensorType::nxp9dof;
+        case 0x1F:
+          return SensorType::nxp9dof;
+        case 0x68:
+          return SensorType::mpu9250;
+        case 0x69:
+          return SensorType::mpu9250;
+	  }
+    } else {
+      // if not, there was no suitable device
+      if (error == 4) {
+#ifdef DEBUG
+        // but we can still mention specific errors
+        Serial.print("unknown error at address 0x");
+        if (address < 16) {
+          Serial.print("0");
+        }
+        Serial.println(address, HEX);
+#endif
+      }
+    }
+  }
+
+  delay(5000); // wait 5 seconds for next scan
+  return SensorType::unknown;
+}
+
+/**
  * This data structure models a quaternion for easier access to its component
  * data.
  *
