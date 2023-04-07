@@ -34,6 +34,9 @@
 // adafruit sensor library
 #include <Adafruit_AHRS.h>
 #include <Adafruit_Sensor_Calibration.h>
+//#include "NXP_FXOS_FXAS.h"  // NXP 9-DoF breakout
+#include <Adafruit_FXAS21002C.h>
+#include <Adafruit_FXOS8700.h>
 
 //-------GENERAL SETTINGS-------
 #define NUMBER_OF_MPU 6 /**< number of IMU (MPU) (boards) attached to the controller  */
@@ -122,9 +125,26 @@ struct NXP9DOFsocket {
   Multiplexer* multiplexer; /**< pointer to (guarding) I2C multiplexer */
   uint8_t channel;     /**< channel used on the I2C multiplexer */
   //uint8_t address = MPU_ADDRESS_1; /**< I2C address of the NXP9DOF board */
+  Adafruit_FXOS8700 fxos = Adafruit_FXOS8700(0x8700A, 0x8700B);
+  Adafruit_FXAS21002C fxas = Adafruit_FXAS21002C(0x0021002C);
+  Adafruit_NXPSensorFusion filter;  /**< filters for the sensor data */
+  Adafruit_Sensor_Calibration_EEPROM cal;  /**< calibration settings for the sensor */
   Adafruit_Sensor *accelerometer; /**< software handler/abstraction for the accelerometer at given channel of given multiplexer */
   Adafruit_Sensor *gyroscope; /**< software handler/abstraction for the gyroscope at given channel of given multiplexer */
   Adafruit_Sensor *magnetometer; /**< software handler/abstraction for the magnetometer at given channel of given multiplexer */
+  sensors_event_t accelerometer_event;
+  sensors_event_t gyroscope_event;
+  sensors_event_t magnetometer_event;
+  
+  bool init() {
+    if (!fxos.begin() || !fxas.begin()) {
+      return false;
+    }
+    accelerometer = fxos.getAccelerometerSensor();
+    gyroscope = &fxas;
+    magnetometer = fxos.getMagnetometerSensor();
+    return true;
+  }
 };
 
 /**
