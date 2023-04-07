@@ -34,7 +34,7 @@
 // adafruit sensor library
 #include <Adafruit_AHRS.h>
 #include <Adafruit_Sensor_Calibration.h>
-//#include "NXP_FXOS_FXAS.h"  // NXP 9-DoF breakout
+// NXP 9-DoF breakout
 #include <Adafruit_FXAS21002C.h>
 #include <Adafruit_FXOS8700.h>
 
@@ -51,6 +51,7 @@
 #define BUTTON /**< indicate existence of button (to trigger calibration procedure) */
 #define DEBUG  /**< enable more verbose logging to serial line */
 #define NOWIFI /**< for faster debug booting */
+#define FILTER_UPDATE_RATE_HZ 25  /**< update rate of the NXP9DOF sensor data filter */
 //-------END GENERAL SETTINGS-------
 
 //-------BEGIN WIFI SETTINGS--------
@@ -139,13 +140,14 @@ struct NXP9DOFsocket {
   /**
    * Initialise the internal sensor handling.
    */
-  bool init() {
+  bool init_sensors() {
     if (!fxos.begin() || !fxas.begin()) {
       return false;
     }
     accelerometer = fxos.getAccelerometerSensor();
     gyroscope = &fxas;
     magnetometer = fxos.getMagnetometerSensor();
+    filter.begin(FILTER_UPDATE_RATE_HZ);
     return true;
   }
 };
