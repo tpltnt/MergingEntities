@@ -34,8 +34,6 @@
 // adafruit sensor library
 #include <Adafruit_AHRS.h>
 #include <Adafruit_Sensor_Calibration.h>
-// internal helper
-#include "multiplexer.h"
 
 //-------GENERAL SETTINGS-------
 #define NUMBER_OF_MPU 6 /**< number of IMU (MPU) (boards) attached to the controller  */
@@ -48,7 +46,8 @@
 
 // Define BUTTON to activate the button
 #define BUTTON /**< indicate existence of button (to trigger calibration procedure) */
-// #define DEBUG  /**< enable more verbose logging to serial line */
+#define DEBUG  /**< enable more verbose logging to serial line */
+#define NOWIFI /**< for faster debug booting */
 //-------END GENERAL SETTINGS-------
 
 //-------BEGIN WIFI SETTINGS--------
@@ -73,14 +72,15 @@ uint16_t cleanUpCounter = 0; /**< count iterations of loop() to trigger clean up
 #define TCA_ADDRESS_LEFT_SIDE  0x71 /**< address of the "left side" 8 channel I2C switch */
 
 // SDA and SCL pin of the soft and hard wire mode
-#define R_SDA_PIN 22     /**< right side I2C data pin (on ESP32) */
-#define R_SCL_PIN 21     /**< right side I2C clock pin (on ESP32) */
+struct Multiplexer{
+  uint8_t address = 0x00;
+  bool locked = false;
+};
+#define SDA_PIN 22     /**< I2C data pin (on ESP32) */
+#define SCL_PIN 21     /**< I2C clock pin (on ESP32) */
 Multiplexer right_mux; /**< I2C multiplexer for (right side) sensor boards */
-TwoWire right_tw = TwoWire(0); /**< I2C bus for (right side) multiplexer */
-#define L_SDA_PIN 25     /**< left side I2C data pin (on ESP32) */
-#define L_SCL_PIN 26     /**< left side I2C clock pin (on ESP32) */
 Multiplexer left_mux; /**< I2C multiplexer for left side sensor boards */
-TwoWire left_tw = TwoWire(1); /**< I2C bus for left side multiplexer */
+
 
 // LED pin for info showing, BUTTON pin for communication
 #define RED_PIN 32   /**< ESP pin number of red LED */
@@ -234,39 +234,49 @@ MPU9250Setting setting; /**< configuration settings of the MPU9250 stored in mem
  * of the eight I2C devices (numbered 0..7) attached to it and locks
  * this particular multiplexer.
  *
- * @param mux pointer to the relvant I2C multiplexer
+ * @param mux the relvant I2C multiplexer
  * @param channel The channel to select to communicate with I2C client
  * @return true if selection was successful, false if not
  * @see countI2cDevices()
  * @see checkAndConfigureGyros()
  * @see fetchData()
  * @todo limit processing to valid values (0..7)
+ * @warning lock is ignored for now
+ * @warning potential race condition between lock check and actual locking
  */
-bool selectI2cMultiplexerChannel(Multiplexer *mux, uint8_t channel) {
+bool selectI2cMultiplexerChannel(Multiplexer* mux, uint8_t channel) {
   // select channel on multiplexer
-  if (!mux->set_lock()) {
+  /*
+  if (!mux->locked) {
     // could not lock, i.e. multiplexer is in use
 #ifdef DEBUG
     Serial.print("channel ");
     Serial.print(channel);
     Serial.print(" on multiplexer 0x");
-    Serial.println(mux->get_address(), HEX);
+    Serial.println(mux->address, HEX);
     Serial.println(" ... failed at multiplexer locking");
 #endif
     return false;
   }
-  if (!mux->select_channel(channel)) {
-    // could not select the channel, ergo unlock multiplexer
+  mux->locked = true;
+  */
+  // select the multiplexer by its hardware address
+  Wire.beginTransmission(mux->address);
+  // select a channel on the multiplexer
+  if (!(1 == Wire.write(1 << channel))) {
+	// could not select the channel, ergo unlock multiplexer
+    mux->locked = false;
 #ifdef DEBUG
     Serial.print("channel ");
     Serial.print(channel);
     Serial.print(" on multiplexer 0x");
-    Serial.println(mux->get_address(), HEX);
+    Serial.println(mux->address, HEX);
     Serial.println(" ... failed at multiplexer channel selection");
 #endif
-    mux->remove_lock();
     return false;
   }
+  Wire.endTransmission();
+  mux->locked = false;
   return true;
 }
 
@@ -512,18 +522,18 @@ void manualMagnetometerCalibration() {
 
     // select channel on multiplexer
     if (!selectI2cMultiplexerChannel(iobundle[i].socket.multiplexer, iobundle[i].socket.channel)) {
-		iobundle[i].socket.multiplexer->remove_lock();
+		iobundle[i].socket.multiplexer->locked = false;
 		Serial.print("skipping ");
 		Serial.print(iobundle[i].socket.label);
 		Serial.println(" because channel selection failed");
-		iobundle[i].socket.multiplexer->remove_lock();
+		iobundle[i].socket.multiplexer->locked = false;
 		continue;
 	}
     // actually calibrate
     iobundle[i].socket.mpu.setMagneticDeclination(MAG_DECLINATION);
     iobundle[i].socket.mpu.calibrateMag();
     // unlock multiplexer
-    iobundle[i].socket.multiplexer->remove_lock();
+    iobundle[i].socket.multiplexer->locked = false;
     // clear up calibration OSC message
     calibration.empty();
   }
@@ -580,7 +590,7 @@ void configureMPU9250(MPU9250socket *skt) {
 
   // select channel on multiplexer
   if(!selectI2cMultiplexerChannel(skt->multiplexer, skt->channel)) {
-    skt->multiplexer->remove_lock();
+    skt->multiplexer->locked = false;
     Serial.print("skipping configuration of");
     Serial.println(skt->label);
     return;
@@ -616,19 +626,19 @@ void configureMPU9250(MPU9250socket *skt) {
 
 #ifdef DEBUG
   Serial.print("using multiplexer 0x");
-  Serial.print(skt->multiplexer->get_address(), HEX);
+  Serial.print(skt->multiplexer->address, HEX);
   Serial.print(" with channel ");
   Serial.println(skt->channel);
   skt->mpu.verbose(true);
 #endif
   // try to initialize the multiplexer with the (global) settings
-  if (!skt->mpu.setup(skt->address, setting, *(skt->multiplexer->i2c))) {
+  if (!skt->mpu.setup(skt->address, setting, Wire)) {
     // somehow it failed
     skt->usable = false;
 #ifdef DEBUG
     Serial.println(" ... failed at MPU setup");
 #endif
-    skt->multiplexer->remove_lock();
+    skt->multiplexer->locked = false;
     return;
   }
 
@@ -638,7 +648,7 @@ void configureMPU9250(MPU9250socket *skt) {
 
   // everything is done and now the senor is usable
   skt->usable = true;
-  skt->multiplexer->remove_lock();
+  skt->multiplexer->locked = false;
 }
 
 /**
@@ -763,7 +773,7 @@ void passiveAccelerometerCalibration() {
       Serial.print(" could not select channel ");
       Serial.print(iobundle[i].socket.channel);
       Serial.print(" on multiplexer at address 0x");
-      Serial.println(iobundle[i].socket.multiplexer->get_address(), HEX);
+      Serial.println(iobundle[i].socket.multiplexer->address, HEX);
       iobundle[i].socket.usable = false;
       continue;
     }
@@ -842,7 +852,7 @@ void passiveMagnetometerCalibration() {
       Serial.print("could not select channel ");
       Serial.print(iobundle[i].socket.channel);
       Serial.print(" on multiplexer at address 0x");
-      Serial.println(iobundle[i].socket.multiplexer->get_address(), HEX);
+      Serial.println(iobundle[i].socket.multiplexer->address, HEX);
       iobundle[i].socket.usable = false;
       continue;
     }
@@ -898,7 +908,7 @@ void calibrateNorth() {
 
   // select channel on multiplexer
   if(!selectI2cMultiplexerChannel(iobundle[LEFT_UPPER_ARM_INDEX].socket.multiplexer, iobundle[LEFT_UPPER_ARM_INDEX].socket.channel)) {
-    iobundle[LEFT_UPPER_ARM_INDEX].socket.multiplexer->remove_lock();
+    iobundle[LEFT_UPPER_ARM_INDEX].socket.multiplexer->locked = false;
     Serial.print("skipping north calibration for ");
     Serial.println(iobundle[LEFT_UPPER_ARM_INDEX].socket.label);
     return;
@@ -913,7 +923,7 @@ void calibrateNorth() {
     }
     time_passed = millis();
   }
-  iobundle[LEFT_UPPER_ARM_INDEX].socket.multiplexer->remove_lock();
+  iobundle[LEFT_UPPER_ARM_INDEX].socket.multiplexer->locked = false;
   
   digitalWrite(RED_PIN, LOW);
   digitalWrite(YEL_PIN, LOW);
@@ -1072,13 +1082,13 @@ void noButtonCalibration(bool autocalibration = true) {
     Serial.println(iobundle[i].socket.label);
     // select channel on multiplexer
     if(!selectI2cMultiplexerChannel(iobundle[i].socket.multiplexer, iobundle[i].socket.channel)) {
-      iobundle[i].socket.multiplexer->remove_lock();
+      iobundle[i].socket.multiplexer->locked = false;
       Serial.print("skipped ");
       Serial.println(iobundle[i].socket.label);
       continue;
     }
     iobundle[i].socket.mpu.calibrateAccelGyro();
-    iobundle[i].socket.multiplexer->remove_lock();
+    iobundle[i].socket.multiplexer->locked = false;
   }
   digitalWrite(RED_PIN, LOW);
   Serial.println("acceleration calibration done.");
@@ -1112,7 +1122,7 @@ void fetchData() {
     // select channel on multiplexer
     //if (!iobundle[i].socket.multiplexer->set_lock()) {
     if(!selectI2cMultiplexerChannel(iobundle[i].socket.multiplexer, iobundle[i].socket.channel)) {
-      iobundle[i].socket.multiplexer->remove_lock();
+      iobundle[i].socket.multiplexer->locked = false;
       Serial.print("not fetching from ");
       Serial.println(iobundle[i].socket.label);
       continue;
@@ -1131,7 +1141,7 @@ void fetchData() {
       Serial.println(" is not usable");
     }
     // fetching done, remove lock
-    iobundle[i].socket.multiplexer->remove_lock();
+    iobundle[i].socket.multiplexer->locked = false;
   }
 
   // store sensor values in global structure to send out
@@ -1201,30 +1211,39 @@ void setup() {
   Serial.println(". done");
 
   //-------WIFI SETUP-------
+#ifndef NOWIFI
   connectWiFi();
   startUdp(localPort);
   Serial.print("target OSC server is ");
   Serial.print(outIp);
   Serial.print(" port ");
   Serial.println(outPort);
+#endif
 
   //-------MPU SETUP------
   // This setup assumes two multiplexer on two different busses.
   Serial.println("setting up I2C ...");
+  if (!Wire.begin(SDA_PIN, SCL_PIN, 100000)) {
+    Serial.println("* pin setup failed");
+    stop_processing();
+  }
+  delay(2000);
   Serial.print("* right side multiplexer .");
-  if (!right_mux.setup(&right_tw, TCA_ADDRESS_RIGHT_SIDE, R_SDA_PIN, R_SCL_PIN)) {
+  right_mux.address = TCA_ADDRESS_RIGHT_SIDE;
+  right_mux.locked = false;
+  if (!selectI2cMultiplexerChannel(&right_mux, 0)) {
     Serial.println(".. failed");
     stop_processing();
   } else {
-    delay(2000);
     Serial.println(".. done");
   }
   Serial.print("* left side multiplexer .");
-  if (!left_mux.setup(&left_tw, TCA_ADDRESS_LEFT_SIDE, L_SDA_PIN, L_SCL_PIN)) {
+  left_mux.address = TCA_ADDRESS_LEFT_SIDE;
+  left_mux.locked = false;
+  if (!selectI2cMultiplexerChannel(&left_mux, 0)) {
     Serial.println(".. failed");
     stop_processing();
   } else {
-    delay(2000);
     Serial.println(".. done");
   }
 
