@@ -163,6 +163,63 @@ enum SensorType {
 };
 
 /**
+ * This data structure models a quaternion for easier access to its component
+ * data.
+ *
+ * @see MPU9250data
+ * @see EulerAngle
+ * @see GyroValue
+ */
+struct Quaternion {
+  float x = 0.0; /**< The x value of the quaternion */
+  float y = 0.0; /**< The y value of the quaternion */
+  float z = 0.0; /**< The z value of the quaternion */
+  float w = 0.0; /**< The w value of the quaternion */
+};
+
+/**
+ * This data structure models an Euler angle for easier access to its component
+ * data.
+ *
+ * @see MPU9250data
+ * @see Quaternion
+ * @see GyroValue
+ */
+struct EulerAngle {
+  float x = 0.0; /**< The x-axis value of the Euler angle */
+  float y = 0.0; /**< The y-axis value of the Euler angle */
+  float z = 0.0; /**< The z-axis value of the Euler angle */
+};
+
+/**
+ * This data structure models gyroscope data for easier access to its component
+ * data.
+ *
+ * @see MPU9250data
+ * @see Quaternion
+ * @see EulerAngle
+ */
+struct GyroValue {
+  float x = 0.0; /**< The x-axis value of the gyroscope */
+  float y = 0.0; /**< The y-axis value of the gyroscope */
+  float z = 0.0; /**< The z-axis value of the gyroscope */
+};
+
+/**
+ * A model of the data retrieved from a sensor.
+ *
+ * @note This is not a model for the sensor board itself.
+ * @see MPU9250socket
+ * @see NXP9DOFsocket
+ * @see IOBundle
+ */
+struct SensorData {
+  Quaternion quaternion; /**< gyroscope data as quaternion */
+  EulerAngle eulerangle; /**< gyroscope data as Euler angle */
+  GyroValue gyrovalue;   /**< gyroscope data along axis */
+};
+
+/**
  * A data structure to handle hardware related data of one Adafruit
  * Precision NXP 9-DOF Breakout Board (i.e. FXOS8700 + FXAS21002).
  *
@@ -233,63 +290,6 @@ struct MPU9250socket {
   uint8_t channel;     /**< channel used on the I2C multiplexer */
   uint8_t address = MPU_ADDRESS_1; /**< I2C address of the MPU9250 */
   MPU9250 mpu; /**< software handler/abstraction for MPU at given channel of given multiplexer */
-};
-
-/**
- * This data structure models a quaternion for easier access to its component
- * data.
- *
- * @see MPU9250data
- * @see EulerAngle
- * @see GyroValue
- */
-struct Quaternion {
-  float x = 0.0; /**< The x value of the quaternion */
-  float y = 0.0; /**< The y value of the quaternion */
-  float z = 0.0; /**< The z value of the quaternion */
-  float w = 0.0; /**< The w value of the quaternion */
-};
-
-/**
- * This data structure models an Euler angle for easier access to its component
- * data.
- *
- * @see MPU9250data
- * @see Quaternion
- * @see GyroValue
- */
-struct EulerAngle {
-  float x = 0.0; /**< The x-axis value of the Euler angle */
-  float y = 0.0; /**< The y-axis value of the Euler angle */
-  float z = 0.0; /**< The z-axis value of the Euler angle */
-};
-
-/**
- * This data structure models gyroscope data for easier access to its component
- * data.
- *
- * @see MPU9250data
- * @see Quaternion
- * @see EulerAngle
- */
-struct GyroValue {
-  float x = 0.0; /**< The x-axis value of the gyroscope */
-  float y = 0.0; /**< The y-axis value of the gyroscope */
-  float z = 0.0; /**< The z-axis value of the gyroscope */
-};
-
-/**
- * A model of the data retrieved from a sensor.
- *
- * @note This is not a model for the sensor board itself.
- * @see MPU9250socket
- * @see NXP9DOFsocket
- * @see IOBundle
- */
-struct SensorData {
-  Quaternion quaternion; /**< gyroscope data as quaternion */
-  EulerAngle eulerangle; /**< gyroscope data as Euler angle */
-  GyroValue gyrovalue;   /**< gyroscope data along axis */
 };
 
 /**
