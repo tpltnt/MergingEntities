@@ -97,6 +97,15 @@ int state = HIGH;       /**< last state of the button */
 int state_button = LOW; /**< current state of the button */
 
 /**
+ * A label / ID type for the different supported sensors.
+ */
+enum SensorType {
+  mpu9250, /**< The MPU9250 sensor board */
+  nxp9dof, /**< not actually supported yet */
+  unknown,  /**< indicate unknown/unsupported sensor types */
+};
+
+/**
  * A data structure to handle hardware related data of one Adafruit
  * Precision NXP 9-DOF Breakout Board (i.e. FXOS8700 + FXAS21002).
  *
