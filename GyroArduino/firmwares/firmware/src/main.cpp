@@ -279,13 +279,14 @@ struct GyroValue {
 };
 
 /**
- * A model of the data retrieved from a MPU9250.
+ * A model of the data retrieved from a sensor.
  *
  * @note This is not a model for the sensor board itself.
  * @see MPU9250socket
+ * @see NXP9DOFsocket
  * @see IOBundle
  */
-struct MPU9250data {
+struct SensorData {
   Quaternion quaternion; /**< gyroscope data as quaternion */
   EulerAngle eulerangle; /**< gyroscope data as Euler angle */
   GyroValue gyrovalue;   /**< gyroscope data along axis */
@@ -295,11 +296,12 @@ struct MPU9250data {
  * A bundle to handle all communication from sensor to OSC message.
  *
  * @see MPU9250socket
- * @see MPU9250data
+ * @see NXP9DOFsocket
+ * @see SensorData
  */
 struct IOBundle {
   MPU9250socket socket; /**< the source for the (sensor) data */
-  MPU9250data data;     /**< the temporary storage for the (sensor) data */
+  SensorData data;     /**< the temporary storage for the (sensor) data */
   OSCMessage message; /**< the target (OSC) destination for the (sensor) data */
 };
 
