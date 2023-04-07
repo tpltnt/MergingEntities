@@ -76,8 +76,8 @@ uint16_t cleanUpCounter = 0; /**< count iterations of loop() to trigger clean up
 
 // SDA and SCL pin of the soft and hard wire mode
 struct Multiplexer{
-  uint8_t address = 0x00;
-  bool locked = false;
+  uint8_t address = 0x00; /**< I2C address of the multiplexer */
+  bool locked = false; /**< (informal) lock on the multiplexer */
 };
 #define SDA_PIN 22     /**< I2C data pin (on ESP32) */
 #define SCL_PIN 21     /**< I2C clock pin (on ESP32) */
@@ -132,10 +132,13 @@ struct NXP9DOFsocket {
   Adafruit_Sensor *accelerometer; /**< software handler/abstraction for the accelerometer at given channel of given multiplexer */
   Adafruit_Sensor *gyroscope; /**< software handler/abstraction for the gyroscope at given channel of given multiplexer */
   Adafruit_Sensor *magnetometer; /**< software handler/abstraction for the magnetometer at given channel of given multiplexer */
-  sensors_event_t accelerometer_event;
-  sensors_event_t gyroscope_event;
-  sensors_event_t magnetometer_event;
+  sensors_event_t accelerometer_event; /**< the (last) event fetched from the accelerometer */
+  sensors_event_t gyroscope_event; /**< the (last) event fetched from the gyroscope */
+  sensors_event_t magnetometer_event; /**< the (last) event fetched from the magnetometer */
   
+  /**
+   * Initialise the internal sensor handling.
+   */
   bool init() {
     if (!fxos.begin() || !fxas.begin()) {
       return false;
