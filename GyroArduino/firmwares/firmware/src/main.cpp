@@ -1376,6 +1376,7 @@ void setup() {
     Serial.println("* pin setup failed");
     stop_processing();
   }
+  Serial.println("* pin setup sucessful");
   delay(2000);
   Serial.print("* right side multiplexer .");
   right_mux.address = TCA_ADDRESS_RIGHT_SIDE;
