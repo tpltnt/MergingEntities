@@ -101,6 +101,59 @@ int state = HIGH;       /**< last state of the button */
 int state_button = LOW; /**< current state of the button */
 
 /**
+ * Switch to the given channel on the multiplexer for I2C communication.
+ *
+ * This function updates the control register in the switch to select one
+ * of the eight I2C devices (numbered 0..7) attached to it and locks
+ * this particular multiplexer.
+ *
+ * @param mux the relvant I2C multiplexer
+ * @param channel The channel to select to communicate with I2C client
+ * @return true if selection was successful, false if not
+ * @see countI2cDevices()
+ * @see checkAndConfigureGyros()
+ * @see fetchData()
+ * @todo limit processing to valid values (0..7)
+ * @warning lock is ignored for now
+ * @warning potential race condition between lock check and actual locking
+ */
+bool selectI2cMultiplexerChannel(Multiplexer* mux, uint8_t channel) {
+  // select channel on multiplexer
+  /*
+  if (!mux->locked) {
+    // could not lock, i.e. multiplexer is in use
+#ifdef DEBUG
+    Serial.print("channel ");
+    Serial.print(channel);
+    Serial.print(" on multiplexer 0x");
+    Serial.println(mux->address, HEX);
+    Serial.println(" ... failed at multiplexer locking");
+#endif
+    return false;
+  }
+  mux->locked = true;
+  */
+  // select the multiplexer by its hardware address
+  Wire.beginTransmission(mux->address);
+  // select a channel on the multiplexer
+  if (!(1 == Wire.write(1 << channel))) {
+	// could not select the channel, ergo unlock multiplexer
+    mux->locked = false;
+#ifdef DEBUG
+    Serial.print("channel ");
+    Serial.print(channel);
+    Serial.print(" on multiplexer 0x");
+    Serial.println(mux->address, HEX);
+    Serial.println(" ... failed at multiplexer channel selection");
+#endif
+    return false;
+  }
+  Wire.endTransmission();
+  mux->locked = false;
+  return true;
+}
+
+/**
  * A label / ID type for the different supported sensors.
  */
 enum SensorType {
@@ -149,6 +202,19 @@ struct NXP9DOFsocket {
     magnetometer = fxos.getMagnetometerSensor();
     filter.begin(FILTER_UPDATE_RATE_HZ);
     return true;
+  }
+
+  /**
+   * Get the raw event data from the sensors.
+   *
+   * @note This function is located here since it involved active
+   * communitaction with the sensor board.
+   */
+  void fetchEvents() {
+    selectI2cMultiplexerChannel(this->multiplexer, this->channel);
+    accelerometer->getEvent(&(this->accelerometer_event));
+    gyroscope->getEvent(&(this->gyroscope_event));
+    magnetometer->getEvent(&(this->magnetometer_event));
   }
 };
 
@@ -260,59 +326,6 @@ IOBundle iobundle[10]; /**< one global handler to deal with sensor data (communi
 float accbias[6][3];  /**< bias/drift/offset profile for the accelerator */
 float gyrobias[6][3]; /**< bias/drift/offset profile for the gyroscope */
 MPU9250Setting setting; /**< configuration settings of the MPU9250 stored in memory */
-
-/**
- * Switch to the given channel on the multiplexer for I2C communication.
- *
- * This function updates the control register in the switch to select one
- * of the eight I2C devices (numbered 0..7) attached to it and locks
- * this particular multiplexer.
- *
- * @param mux the relvant I2C multiplexer
- * @param channel The channel to select to communicate with I2C client
- * @return true if selection was successful, false if not
- * @see countI2cDevices()
- * @see checkAndConfigureGyros()
- * @see fetchData()
- * @todo limit processing to valid values (0..7)
- * @warning lock is ignored for now
- * @warning potential race condition between lock check and actual locking
- */
-bool selectI2cMultiplexerChannel(Multiplexer* mux, uint8_t channel) {
-  // select channel on multiplexer
-  /*
-  if (!mux->locked) {
-    // could not lock, i.e. multiplexer is in use
-#ifdef DEBUG
-    Serial.print("channel ");
-    Serial.print(channel);
-    Serial.print(" on multiplexer 0x");
-    Serial.println(mux->address, HEX);
-    Serial.println(" ... failed at multiplexer locking");
-#endif
-    return false;
-  }
-  mux->locked = true;
-  */
-  // select the multiplexer by its hardware address
-  Wire.beginTransmission(mux->address);
-  // select a channel on the multiplexer
-  if (!(1 == Wire.write(1 << channel))) {
-	// could not select the channel, ergo unlock multiplexer
-    mux->locked = false;
-#ifdef DEBUG
-    Serial.print("channel ");
-    Serial.print(channel);
-    Serial.print(" on multiplexer 0x");
-    Serial.println(mux->address, HEX);
-    Serial.println(" ... failed at multiplexer channel selection");
-#endif
-    return false;
-  }
-  Wire.endTransmission();
-  mux->locked = false;
-  return true;
-}
 
 
 /**
