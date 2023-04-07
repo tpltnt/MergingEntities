@@ -755,10 +755,12 @@ void checkAndConfigureGyros() {
 void passiveAccelerometerCalibration() {
   Serial.println("calibration of accelerometers: don't move devices");
   calibration.add("calibration of accelerometers: don't move devices");
+#ifndef NOWIFI
   Udp.beginPacket(outIp, outPort);
   calibration.send(Udp);
   Udp.endPacket();
   calibration.empty();
+#endif
   digitalWrite(RED_PIN, HIGH);
   Serial.println("calibrating accelerometer for");
   for (uint8_t i = 0; i < NUMBER_OF_MPU; i++) {
@@ -842,10 +844,12 @@ void passiveMagnetometerCalibration() {
       digitalWrite(YEL_PIN, state);
       state = HIGH;
     }
+#ifndef NOWIFI
     calibration.add("calibration of ").add(iobundle[i].socket.label);
     Udp.beginPacket(outIp, outPort);
     calibration.send(Udp);
     Udp.endPacket();
+#endif
 
     if (!selectI2cMultiplexerChannel(iobundle[i].socket.multiplexer,
                                      iobundle[i].socket.channel)) {
@@ -1064,11 +1068,14 @@ void noButtonCalibration(bool autocalibration = true) {
   Serial.println("doing calibration without button interaction");
   delay(1000);
   Serial.println("calibration of acceleration: don't move devices");
+
+#ifndef NOWIFI
   calibration.add("calibration of acceleration: don't move devices");
   Udp.beginPacket(outIp, outPort);
   calibration.send(Udp);
   Udp.endPacket();
   calibration.empty();
+#endif
 
   digitalWrite(RED_PIN, HIGH);
   // calibrate one by one
@@ -1438,6 +1445,7 @@ void loop() {
           .add(iobundle[i].data.gyrovalue.y)
           .add(iobundle[i].data.gyrovalue.z);
 
+#ifndef NOWIFI
       // send data out
       Udp.beginPacket(outIp, outPort);
       body[i].send(Udp);
@@ -1445,6 +1453,7 @@ void loop() {
 
       // clear up message cache
       body[i].empty();
+#endif
     }
   }
 
