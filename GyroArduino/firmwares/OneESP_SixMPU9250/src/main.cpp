@@ -89,17 +89,22 @@ uint16_t cleanUpCounter = 0; // periodically clean up things (65535)
 #define FILTER_UPDATE_RATE_HZ 25     /**< update rate of the NXP9DOF sensor data filter */
 //--- end hardware configuration ---
 
-float theta = 0;    /**< angle to the north */
-
-int state = HIGH;        /**< last state of the button */
-int state_button = LOW;  /**< current state of the button */
-
+//--- global data structs ---
+/**
+ * A label / ID type for the different supported sensors.
+ */
+enum SensorType {
+  mpu9250, /**< The MPU9250 sensor board */
+  nxp9dof, /**< not actually supported yet */
+  unknown,  /**< indicate unknown/unsupported sensor types */
+};
 
 /**
  * A data structure to handle hardware related data of one MPU9250.
  *
  * @todo Also move data read from sensor here (?)
- * @see MPU9250data
+ * @see NXP9DOFsocket
+ * @see SensorData
  * @see IOBundle
  */
 struct MPU9250socket {
@@ -112,9 +117,65 @@ struct MPU9250socket {
 };
 
 /**
+ * A data structure to handle hardware related data of one Adafruit
+ * Precision NXP 9-DOF Breakout Board (i.e. FXOS8700 + FXAS21002).
+ *
+ * @note This sensor board is deprecated, see
+ * https://www.adafruit.com/product/3463
+ *
+ * @see MPU9250socket
+ * @see SensorData
+ * @see IOBundle
+ */
+struct NXP9DOFsocket {
+  const char *label; /**< human readable identification of the sensor (for OSC path) */
+  bool usable = false; /**< indicate that sensor (data) is present and no errors occured */
+  Multiplexer* multiplexer; /**< pointer to (guarding) I2C multiplexer */
+  uint8_t channel;     /**< channel used on the I2C multiplexer */
+  //uint8_t address = MPU_ADDRESS_1; /**< I2C address of the NXP9DOF board */
+  Adafruit_FXOS8700 fxos = Adafruit_FXOS8700(0x8700A, 0x8700B);
+  Adafruit_FXAS21002C fxas = Adafruit_FXAS21002C(0x0021002C);
+  Adafruit_NXPSensorFusion filter;  /**< filters for the sensor data */
+  Adafruit_Sensor_Calibration_EEPROM cal;  /**< calibration settings for the sensor */
+  Adafruit_Sensor *accelerometer; /**< software handler/abstraction for the accelerometer at given channel of given multiplexer */
+  Adafruit_Sensor *gyroscope; /**< software handler/abstraction for the gyroscope at given channel of given multiplexer */
+  Adafruit_Sensor *magnetometer; /**< software handler/abstraction for the magnetometer at given channel of given multiplexer */
+  sensors_event_t accelerometer_event; /**< the (last) event fetched from the accelerometer */
+  sensors_event_t gyroscope_event; /**< the (last) event fetched from the gyroscope */
+  sensors_event_t magnetometer_event; /**< the (last) event fetched from the magnetometer */
+
+  /**
+   * Initialise the internal sensor handling.
+   */
+  bool init_sensors() {
+    if (!fxos.begin() || !fxas.begin()) {
+      return false;
+    }
+    accelerometer = fxos.getAccelerometerSensor();
+    gyroscope = &fxas;
+    magnetometer = fxos.getMagnetometerSensor();
+    filter.begin(FILTER_UPDATE_RATE_HZ);
+    return true;
+  }
+
+  /**
+   * Get the raw event data from the sensors.
+   *
+   * @note This function is located here since it involved active
+   * communitaction with the sensor board.
+   */
+  void fetchEvents() {
+    selectI2cMultiplexerChannel(this->multiplexer, this->channel);
+    accelerometer->getEvent(&(this->accelerometer_event));
+    gyroscope->getEvent(&(this->gyroscope_event));
+    magnetometer->getEvent(&(this->magnetometer_event));
+  }
+};
+
+/**
  * This data structure models a quaternion for easier access to its component data.
  *
- * @see MPU9250data
+ * @see SensorData
  * @see EulerAngle
  * @see GyroValue
  */
@@ -152,16 +213,17 @@ struct GyroValue {
 };
 
 /**
- * A model of the data retrieved from a MPU9250.
- * 
+ * A model of the data retrieved from a sensor.
+ *
  * @note This is not a model for the sensor board itself.
  * @see MPU9250socket
+ * @see NXP9DOFsocket
  * @see IOBundle
  */
-struct MPU9250data {
-	Quaternion quaternion; /**< gyroscope data as quaternion */
-	EulerAngle eulerangle; /**< gyroscope data as Euler angle */
-	GyroValue gyrovalue;   /**< gyroscope data along axis */
+struct SensorData {
+  Quaternion quaternion; /**< gyroscope data as quaternion */
+  EulerAngle eulerangle; /**< gyroscope data as Euler angle */
+  GyroValue gyrovalue;   /**< gyroscope data along axis */
 };
 
 /**
@@ -172,7 +234,7 @@ struct MPU9250data {
  */
 struct IOBundle {
 	MPU9250socket socket;  /**< the source for the (sensor) data */
-	MPU9250data data;      /**< the temporary storage for the (sensor) data */
+	SensorData data;      /**< the temporary storage for the (sensor) data */
 	OSCMessage message;    /**< the target (OSC) destination for the (sensor) data */
 };
     
@@ -190,6 +252,10 @@ struct IOBundle {
 #define RIGHT_LOWER_ARM_INDEX 7 /**< index for the sensor at the right lower arm (antebrachium) */
 #define LEFT_UPPER_LEG_INDEX 8  /**< index for the sensor at the left thigh (femur) */
 #define RIGHT_UPPER_LEG_INDEX 9 /**< index for the sensor at the right thigh (femur) */
+
+float theta = 0;    /**< angle to the north */
+int state = HIGH;        /**< last state of the button */
+int state_button = LOW;  /**< current state of the button */
 
 // Instance to store data on ESP32, name of the preference
 Preferences preferences;  /**< container for preferences to be stored in non-volatile memory on ESP32 */
