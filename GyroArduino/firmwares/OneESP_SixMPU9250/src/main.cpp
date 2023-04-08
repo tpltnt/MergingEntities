@@ -130,7 +130,7 @@ struct MPU9250socket {
 struct NXP9DOFsocket {
   const char *label; /**< human readable identification of the sensor (for OSC path) */
   bool usable = false; /**< indicate that sensor (data) is present and no errors occured */
-  Multiplexer* multiplexer; /**< pointer to (guarding) I2C multiplexer */
+  uint8_t multiplexer; /**< I2C address of the responsible I2C multiplexer */
   uint8_t channel;     /**< channel used on the I2C multiplexer */
   //uint8_t address = MPU_ADDRESS_1; /**< I2C address of the NXP9DOF board */
   Adafruit_FXOS8700 fxos = Adafruit_FXOS8700(0x8700A, 0x8700B);
@@ -254,6 +254,9 @@ struct IOBundle {
 #define RIGHT_UPPER_LEG_INDEX 9 /**< index for the sensor at the right thigh (femur) */
 
 float theta = 0;    /**< angle to the north */
+//float north = 0;
+//float halfcos = 0;
+//float halfsin = 0;
 int state = HIGH;        /**< last state of the button */
 int state_button = LOW;  /**< current state of the button */
 
