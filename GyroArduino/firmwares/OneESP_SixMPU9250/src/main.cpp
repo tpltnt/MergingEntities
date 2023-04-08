@@ -29,6 +29,13 @@
 #include <WiFiUdp.h>
 // MPU and Bitbang library
 #include "MPU9250.h"
+// Adafruit sensor libraries
+#include <Adafruit_AHRS.h>
+#include <Adafruit_Sensor_Calibration.h>
+// NXP 9-DoF breakout
+#include <Adafruit_FXAS21002C.h>
+#include <Adafruit_FXOS8700.h>
+
 
 
 //-------GENERAL SETTINGS-------
@@ -59,10 +66,11 @@ int localPort = 8888;                /**< source port for UDP communication on E
 // Parameters of the setup
 uint16_t cleanUpCounter = 0; // periodically clean up things (65535)
 
+//--- begin hardware configuration ---
 // Addresses and pin of IMU (MPU-9250) and TCA9548A(=multiplexer)
 #define MPU_ADDRESS_1 0x68           /**< address of the MPU-9250 when its pin AD0 is low */
 #define MPU_ADDRESS_2 0x69           /**< address of the MPU-9250 when its pin AD0 is high */
-#define TCA_ADDRESS_RIGHT_SIDE 0x70  /**< address of the "right side" 8 channel I2C switch */
+#define TCA_ADDRESS_RIGHT_SIDE 0x70  /**< address of the "right side" 8 channel I2C switch, also default on prototype board */
 #define TCA_ADDRESS_LEFT_SIDE 0x71   /**< address of the "left side" 8 channel I2C switch */
 
 // SDA and SCL pin of the soft and hard wire mode
@@ -78,10 +86,14 @@ uint16_t cleanUpCounter = 0; // periodically clean up things (65535)
 #define ID_PIN3 12   /**< 3rd bit pin of ID DIP switch (D12) */
 #define ID_PIN4 13   /**< 4rd bit pin of ID DIP switch (D13) */
 
+#define FILTER_UPDATE_RATE_HZ 25     /**< update rate of the NXP9DOF sensor data filter */
+//--- end hardware configuration ---
+
 float theta = 0;    /**< angle to the north */
 
 int state = HIGH;        /**< last state of the button */
 int state_button = LOW;  /**< current state of the button */
+
 
 /**
  * A data structure to handle hardware related data of one MPU9250.
