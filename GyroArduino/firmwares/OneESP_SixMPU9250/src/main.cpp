@@ -285,14 +285,16 @@ float theta = 0;    /**< angle to the north */
 //float north = 0;
 //float halfcos = 0;
 //float halfsin = 0;
+//float time_converge = 0;
+//float last_update = 0;
 int state = HIGH;        /**< last state of the button */
 int state_button = LOW;  /**< current state of the button */
 
 // Instance to store data on ESP32, name of the preference
 Preferences preferences;  /**< container for preferences to be stored in non-volatile memory on ESP32 */
 
-// MPU9250 settings and data storage
-IOBundle iobundle[NUMBER_OF_MPU];  /**< one global handler to deal with MPU9250 data (communication) to be accessed by index */
+// Sensor settings and data storage
+IOBundle iobundle[10];  /**< one global handler to deal with sensor data (communication) to be accessed by index (10 because that is the max. number of sensors right now) */
 float accbias[6][3];     /**< bias/drift/offset profile for the accelerator */
 float gyrobias[6][3];    /**< bias/drift/offset profile for the gyroscope */
 MPU9250Setting setting;  /**< configuration settings of the MPU9250 stored in memory */
