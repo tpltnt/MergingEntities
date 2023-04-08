@@ -228,6 +228,34 @@ struct SensorData {
 
 /**
  * A bundle to handle all communication from sensor to OSC message.
+ *
+ * @see MPU9250socket
+ * @see NXP9DOFsocket
+ * @see SensorData
+ * @see IOBundle
+ */
+struct NXP9DOFBundle {
+  NXP9DOFsocket socket; /**< the source for the (sensor) data */
+  SensorData data;     /**< the temporary storage for the (sensor) data */
+  OSCMessage message; /**< the target (OSC) destination for the (sensor) data */
+
+  /**
+   * Update the (internal) socket (data).
+   * This involves fetching the data, storing it internally, and
+   * preparing the OSC message.
+   *
+   * @return true if successful, false if any error occured
+   * @todo maybe also send OSC message?
+   * @warning This function is not completly implemented yet.
+   */
+  bool update() {
+    socket.fetchEvents();
+    return false;
+  }
+};
+
+/**
+ * A bundle to handle all communication from sensor to OSC message.
  * 
  * @see MPU9250socket
  * @see MPU9250data
